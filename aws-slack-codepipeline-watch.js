@@ -33,27 +33,36 @@ exports.handler = (event, context, callback) => {
   if (event.source !== 'aws.codepipeline')
     return callback(new Error(`Called from wrong source ${event.source}`));
 
-  // if (EVENT_TYPES.pipeline !== event['detail-type'])
-  // return callback(null, 'No Treatment for now of stage and action');
   const pipelineName = event.detail.pipeline;
   const pipelineExecutionId = event.detail['execution-id'];
 
-  codepipeline.getPipelineExecution({pipelineExecutionId, pipelineName}, function(err, pipelineData) {
+  codepipeline.getPipelineExecution({pipelineExecutionId, pipelineName}, function(
+    err,
+    pipelineData
+  ) {
     if (err) return callback(err);
     const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
-    const commitId = artifactRevision.revisionId;
-    const commitMessage = artifactRevision.revisionSummary;
-    const commitUrl = artifactRevision.revisionUrl;
+    const commitId = artifactRevision && artifactRevision.revisionId;
+    const shortCommitId = commitId && commitId.slice(0, 8);
+    const commitMessage = artifactRevision && artifactRevision.revisionSummary;
+    const commitUrl = artifactRevision && artifactRevision.revisionUrl;
     const env = /staging/.test(pipelineName) ? 'staging' : 'production';
     const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
-    const title = `${projectName} (${env})`;
     const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
-
-    const text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>
-  commit \`<${commitUrl}|${commitId.slice(0, 8)}>\`: _${commitMessage}_
-  _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
-
-    const attachments = [{title, text, color: COLOR_CODES[event.detail.state] || '#dddddd'}];
+    let title, text;
+    if (EVENT_TYPES.pipeline === event['detail-type']) {
+      const details = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}
+_(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
+      text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>\n\n${details}`;
+      title = `${projectName} (${env})`;
+    } else if (EVENT_TYPES.stage === event['detail-type']) {
+      text = `Stage *${event.detail.stage}* just *${event.detail.state.toLowerCase()}*`;
+    } else if (EVENT_TYPES.action === event['detail-type']) {
+      text = `Action *${event.detail.action}* just *${event.detail.state.toLowerCase()}*`;
+    }
+    const attachments = [
+      {title, text, color: COLOR_CODES[event.detail.state] || '#dddddd', mrkdwn_in: ['text']}
+    ];
 
     if (event.detail.state === 'STARTED' && EVENT_TYPES.pipeline === event['detail-type']) {
       web.chat
@@ -62,18 +71,18 @@ exports.handler = (event, context, callback) => {
           channel,
           attachments
         })
-        .then(res => {
+        .then(res =>
           docClient.put(
             {
               TableName: dynamodbTable,
               Item: {projectName, executionId: pipelineExecutionId, slackThreadTs: res.message.ts}
             },
-            (dynamoErr, res) => {
+            (dynamoErr, ack) => {
               if (dynamoErr) return callback(dynamoErr);
               return callback(null, 'Message Acknowledge');
             }
-          );
-        })
+          )
+        )
         .catch(callback);
     } else {
       const params = {
@@ -85,7 +94,6 @@ exports.handler = (event, context, callback) => {
         if (err) {
           return callback(dynamoErr);
         } else {
-          console.log('Success', doc.Item);
           web.chat
             .postMessage({
               as_user: true,
@@ -94,7 +102,6 @@ exports.handler = (event, context, callback) => {
               thread_ts: doc.Item.slackThreadTs
             })
             .then(res => {
-              console.log(res);
               return callback(null, 'Acknoledge Event');
             })
             .catch(callback);
