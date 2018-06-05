@@ -1,0 +1,16 @@
+{
+  "name": "aws-slack-codepipeline-watch",
+  "version": "0.0.1",
+  "description": "AWS Slack Codepipeline Watch",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "AWS",
+    "Slack",
+    "Codepipeline"
+  ],
+  "author": "Adrien Becchis",
+  "license": "ISC"
+}
