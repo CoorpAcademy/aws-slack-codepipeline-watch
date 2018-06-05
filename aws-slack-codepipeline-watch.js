@@ -44,10 +44,14 @@ exports.handler = (event, context, callback) => {
         const title = `${projectName} (${env})`;
         const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
         const text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>
-commit \`<${commitUrl}|${commitId.slice(0,8)}>\`: _${commitMessage}_
+commit \`<${commitUrl}|${commitId.slice(0, 8)}>\`: _${commitMessage}_
 _(\`execution-id\`: <${link}/history#${pipelineExecutionId}|${pipelineExecutionId}>)_`;
 
-        web.chat.postMessage({ channel, attachments: [{ title, text, color: COLOR_CODES[event.detail.state] || '#dddddd' }] })
+        web.chat.postMessage({
+            as_user: true,
+            channel,
+            attachments: [{ title, text, color: COLOR_CODES[event.detail.state] || '#dddddd' }]
+        })
             .then(res => {
                 callback(null, 'Acknoledge Event');
             }).catch(err => callback(err));
