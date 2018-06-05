@@ -49,11 +49,11 @@ exports.handler = (event, context, callback) => {
     const env = /staging/.test(pipelineName) ? 'staging' : 'production';
     const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
     const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
+    const details = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}
+_(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
     let title, text;
     if (EVENT_TYPES.pipeline === event['detail-type']) {
-      const details = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}
-_(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
-      text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>\n\n${details}`;
+      text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
       title = `${projectName} (${env})`;
     } else if (EVENT_TYPES.stage === event['detail-type']) {
       text = `Stage *${event.detail.stage}* just *${event.detail.state.toLowerCase()}*`;
@@ -75,7 +75,13 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
           docClient.put(
             {
               TableName: dynamodbTable,
-              Item: {projectName, executionId: pipelineExecutionId, slackThreadTs: res.message.ts}
+              Item: {
+                projectName,
+                executionId: pipelineExecutionId,
+                slackThreadTs: res.message.ts,
+                originalMessage: attachments,
+                resolvedCommit: false
+              }
             },
             (dynamoErr, ack) => {
               if (dynamoErr) return callback(dynamoErr);
@@ -94,6 +100,43 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
         if (err) {
           return callback(dynamoErr);
         } else {
+          if (doc.Item && !doc.Item.resolvedCommit && artifactRevision)
+            return docClient.update(
+              {
+                TableName: dynamodbTable,
+                Key: {projectName, executionId: pipelineExecutionId},
+                UpdateExpression: 'set #a = true',
+                ExpressionAttributeNames: {'#a': 'resolvedCommit'}
+              },
+              dynamoErr2 => {
+                Promise.all([
+                  web.chat.update({
+                    as_user: true,
+                    channel,
+                    attachments: [
+                      ...doc.Item.originalMessage,
+                      {
+                        text: details,
+                        mrkdwn_in: ['text']
+                      }
+                    ],
+                    ts: doc.Item.slackThreadTs
+                  }),
+                  web.chat.postMessage({
+                    as_user: true,
+                    channel,
+                    attachments,
+                    thread_ts: doc.Item.slackThreadTs
+                  })
+                ])
+
+                  .then(res => {
+                    return callback(null, 'Acknoledge Event');
+                  })
+                  .catch(callback);
+              }
+            );
+
           web.chat
             .postMessage({
               as_user: true,
