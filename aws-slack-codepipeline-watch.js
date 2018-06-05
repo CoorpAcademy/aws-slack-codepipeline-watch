@@ -2,12 +2,15 @@ const {WebClient} = require('@slack/client');
 const AWS = require('aws-sdk');
 
 const codepipeline = new AWS.CodePipeline({apiVersion: '2015-07-09'});
-
+const docClient = new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'});
 const token = process.env.SLACK_TOKEN;
 if (!token) throw new Error('Need a valid token defined in SLACK_TOKEN');
 
 const channel = process.env.SLACK_CHANNEL;
 if (!channel) throw new Error('Need a valid chanel defined in SLACK_CHANNEL');
+
+const dynamodbTable = process.env.DYNAMO_TABLE;
+if (!dynamodbTable) throw new Error('Need a valid chanel defined in DYNAMO_TABLE');
 
 const web = new WebClient(token);
 
@@ -30,14 +33,14 @@ exports.handler = (event, context, callback) => {
   if (event.source !== 'aws.codepipeline')
     return callback(new Error(`Called from wrong source ${event.source}`));
 
-  if (EVENT_TYPES.pipeline !== event['detail-type'])
-    return callback(null, 'No Treatment for now of stage and action');
+  // if (EVENT_TYPES.pipeline !== event['detail-type'])
+  // return callback(null, 'No Treatment for now of stage and action');
   const pipelineName = event.detail.pipeline;
   const pipelineExecutionId = event.detail['execution-id'];
 
-  codepipeline.getPipelineExecution({pipelineExecutionId, pipelineName}, function(err, data) {
+  codepipeline.getPipelineExecution({pipelineExecutionId, pipelineName}, function(err, pipelineData) {
     if (err) return callback(err);
-    const artifactRevision = data.pipelineExecution.artifactRevisions[0];
+    const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
     const commitId = artifactRevision.revisionId;
     const commitMessage = artifactRevision.revisionSummary;
     const commitUrl = artifactRevision.revisionUrl;
@@ -45,19 +48,58 @@ exports.handler = (event, context, callback) => {
     const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
     const title = `${projectName} (${env})`;
     const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
-    const text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>
-commit \`<${commitUrl}|${commitId.slice(0, 8)}>\`: _${commitMessage}_
-_(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
 
-    web.chat
-      .postMessage({
-        as_user: true,
-        channel,
-        attachments: [{title, text, color: COLOR_CODES[event.detail.state] || '#dddddd'}]
-      })
-      .then(res => {
-        return callback(null, 'Acknoledge Event');
-      })
-      .catch(callback);
+    const text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>
+  commit \`<${commitUrl}|${commitId.slice(0, 8)}>\`: _${commitMessage}_
+  _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
+
+    const attachments = [{title, text, color: COLOR_CODES[event.detail.state] || '#dddddd'}];
+
+    if (event.detail.state === 'STARTED' && EVENT_TYPES.pipeline === event['detail-type']) {
+      web.chat
+        .postMessage({
+          as_user: true,
+          channel,
+          attachments
+        })
+        .then(res => {
+          docClient.put(
+            {
+              TableName: dynamodbTable,
+              Item: {projectName, executionId: pipelineExecutionId, slackThreadTs: res.message.ts}
+            },
+            (dynamoErr, res) => {
+              if (dynamoErr) return callback(dynamoErr);
+              return callback(null, 'Message Acknowledge');
+            }
+          );
+        })
+        .catch(callback);
+    } else {
+      const params = {
+        TableName: dynamodbTable,
+        Key: {projectName, executionId: pipelineExecutionId}
+      };
+
+      docClient.get(params, function(dynamoErr, doc) {
+        if (err) {
+          return callback(dynamoErr);
+        } else {
+          console.log('Success', doc.Item);
+          web.chat
+            .postMessage({
+              as_user: true,
+              channel,
+              attachments,
+              thread_ts: doc.Item.slackThreadTs
+            })
+            .then(res => {
+              console.log(res);
+              return callback(null, 'Acknoledge Event');
+            })
+            .catch(callback);
+        }
+      });
+    }
   });
 };
