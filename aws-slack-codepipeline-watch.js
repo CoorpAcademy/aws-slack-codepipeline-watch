@@ -18,9 +18,9 @@ const COLOR_CODES = {
     STARTED:'#eeeeee', 
     FAILED:'#DC143C',
     SUCCEEDED: '#3CB371',
-    SUPERSEDED: '',
-    CANCELED: '',
-    RESUMED: ''
+    SUPERSEDED: '#db7923',
+    CANCELED: '#501b91',
+    RESUMED: '#5eba81'
 };
 
 exports.handler = (event, context, callback) => {
@@ -32,8 +32,9 @@ exports.handler = (event, context, callback) => {
     const env = /staging/.test(event.detail.pipeline) ? 'staging' : 'production';
     const pipelineName = /codepipeline-(.*)/.exec(event.detail.pipeline)[1];
     const title = `${pipelineName} (${env})`;
-    const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${event.detail.pipeline}`
-    const text = `Deployment just ${event.detail.state.toLowerCase()} <${link}|🔗>\n_(id: ${event.detail['execution-id']})_`;
+    const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${event.detail.pipeline}`;
+    const text = `Deployment just ${event.detail.state.toLowerCase()} <${link}|🔗>
+_(\`execution-id\`: <${link}/history#${event.detail['execution-id']}|${event.detail['execution-id']}>)_`;
 
     web.chat.postMessage({ channel, attachments: [{title, text, color: COLOR_CODES[event.detail.state]||'#dddddd'}] })
         .then(res => {
