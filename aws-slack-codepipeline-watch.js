@@ -14,12 +14,23 @@ const EVENT_TYPES = {
     action: 'CodePipeline Action Execution State Change'
 };
 
+const COLOR_CODES = {
+    STARTED:'#eeeeee', 
+    FAILED:'#DC143C',
+    SUCCEED: '#3CB371'
+};
 
 exports.handler = (event, context, callback) => {
     if (event.source !== 'aws.codepipeline')
         return callback(new Error(`Called from wrong source ${event.source}`));
 
-    web.chat.postMessage({ channel, text: `${event.detail.pipeline} : ${event.detail.state}` })
+    if(EVENT_TYPES.pipeline !== event['detail-type']) return callback(null, 'No Treatment for now of stage and action');
+
+    const env = /staging/.test(event.detail.pipeline) ? 'staging' : 'production';
+    const pipelineName = /codepipeline-(.*)/.exec(event.detail.pipeline)[1]
+    const title = `Deployment on ${pipelineName} ${env} just ${event.detail.state.toLowerCase()}`
+    const text = 'More details to come!'
+    web.chat.postMessage({ channel, attachments: [{title, text, color: COLOR_CODES[event.detail.state]||'#dddddd'}] })
         .then(res => {
             callback(null, 'Acknoledge Event');
         }).catch(err => callback(err));
