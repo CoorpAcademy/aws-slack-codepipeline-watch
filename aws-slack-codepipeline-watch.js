@@ -43,8 +43,8 @@ exports.handler = (event, context, callback) => {
         const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
         const title = `${projectName} (${env})`;
         const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
-        const text = `Deployment just ${event.detail.state.toLowerCase()} <${link}|🔗>
-commit \`<${commitUrl}|${commitId}>\`: _${commitMessage}_
+        const text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>
+commit \`<${commitUrl}|${commitId.slice(0,8)}>\`: _${commitMessage}_
 _(\`execution-id\`: <${link}/history#${pipelineExecutionId}|${pipelineExecutionId}>)_`;
 
         web.chat.postMessage({ channel, attachments: [{ title, text, color: COLOR_CODES[event.detail.state] || '#dddddd' }] })
