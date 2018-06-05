@@ -17,7 +17,10 @@ const EVENT_TYPES = {
 const COLOR_CODES = {
     STARTED:'#eeeeee', 
     FAILED:'#DC143C',
-    SUCCEED: '#3CB371'
+    SUCCEEDED: '#3CB371',
+    SUPERSEDED: '',
+    CANCELED: '',
+    RESUMED: ''
 };
 
 exports.handler = (event, context, callback) => {
@@ -27,9 +30,11 @@ exports.handler = (event, context, callback) => {
     if(EVENT_TYPES.pipeline !== event['detail-type']) return callback(null, 'No Treatment for now of stage and action');
 
     const env = /staging/.test(event.detail.pipeline) ? 'staging' : 'production';
-    const pipelineName = /codepipeline-(.*)/.exec(event.detail.pipeline)[1]
-    const title = `Deployment on ${pipelineName} ${env} just ${event.detail.state.toLowerCase()}`
-    const text = 'More details to come!'
+    const pipelineName = /codepipeline-(.*)/.exec(event.detail.pipeline)[1];
+    const title = `${pipelineName} (${env})`;
+    const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${event.detail.pipeline}`
+    const text = `Deployment just ${event.detail.state.toLowerCase()} <${link}|🔗>\n_(id: ${event.detail['execution-id']})_`;
+
     web.chat.postMessage({ channel, attachments: [{title, text, color: COLOR_CODES[event.detail.state]||'#dddddd'}] })
         .then(res => {
             callback(null, 'Acknoledge Event');
