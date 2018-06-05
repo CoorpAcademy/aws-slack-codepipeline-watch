@@ -45,7 +45,7 @@ exports.handler = (event, context, callback) => {
         const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
         const text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>
 commit \`<${commitUrl}|${commitId.slice(0, 8)}>\`: _${commitMessage}_
-_(\`execution-id\`: <${link}/history#${pipelineExecutionId}|${pipelineExecutionId}>)_`;
+_(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
 
         web.chat.postMessage({
             as_user: true,
