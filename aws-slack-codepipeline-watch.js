@@ -61,7 +61,7 @@ const shouldProceed = (event, currentStage, currentActions) => {
   if (event['detail-type'] === EVENT_TYPES.action) {
     if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
       return _.isEmpty(currentActions);
-    return _.incudes(event.detail.action, currentActions);
+    return _.includes(event.detail.action, currentActions);
   }
 };
 
@@ -103,7 +103,8 @@ exports.handler = async (event, context) => {
           slackThreadTs: slackPostedMessage.message.ts,
           originalMessage: startAttachments,
           resolvedCommit: false,
-          codepipelineDetails: await codepipeline.getPipelineAsync({name: pipelineName})
+          codepipelineDetails: await codepipeline.getPipelineAsync({name: pipelineName}),
+          pendingMessages: []
         }
       }),
       web.chat.postMessage({
@@ -132,8 +133,14 @@ exports.handler = async (event, context) => {
   const {currentStage, currentActions, codepipelineDetails, pendingMessages} = doc.Item;
 
   if (!shouldProceed(event, currentStage, currentActions)) {
-    // §TODO: add pending event to dynamo
-  }
+    return docClient.updateAsync({
+      TableName: dynamodbTable,
+      Key: {projectName, executionId: pipelineExecutionId},
+      UpdateExpression: 'SET #list = list_append(#list, :event)',
+      ExpressionAttributeNames: {'#list': 'pendingMessages'},
+      ExpressionAttributeValues: {':event': [event]}
+    });
+  } 
 
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
@@ -197,7 +204,8 @@ exports.handler = async (event, context) => {
   }
 
   if (!_.isEmpty(pendingMessages)) {
-    // §TODO HAndling pending messages
+    // §TODO Handling pending messages
+    // Iterate and treat them as going
   }
 
   await web.chat.postMessage({
