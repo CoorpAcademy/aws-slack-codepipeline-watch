@@ -94,8 +94,9 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
       await docClient.updateAsync({
         TableName: dynamodbTable,
         Key: {projectName, executionId: pipelineExecutionId},
-        UpdateExpression: 'set #a = true',
-        ExpressionAttributeNames: {'#a': 'resolvedCommit'}
+        UpdateExpression: 'set #resolvedCommit = :resolvedCommit',
+        ExpressionAttributeNames: {'#resolvedCommit': 'resolvedCommit'},
+        ExpressionAttributeValues: {':resolvedCommit': true}
       });
       return Promise.all([
         web.chat.update({
