@@ -22,14 +22,32 @@ const EVENT_TYPES = {
   action: 'CodePipeline Action Execution State Change'
 };
 
-const COLOR_CODES = {
-  STARTED: '#38d',
-  FAILED: '#DC143C',
-  SUCCEEDED: '#1b9932',
-  SUPERSEDED: '#db7923',
-  CANCELED: '#eeeeee',
-  RESUMED: '#5eba81'
-};
+const COLOR_CODES = [
+  {
+    STARTED: '#38d',
+    FAILED: '#dc143c',
+    SUCCEEDED: '#1b9932',
+    SUPERSEDED: '#db7923',
+    CANCELED: '#bbbbbb',
+    RESUMED: '#5eba81',
+    pale: {
+      STARTED: '#4d90d4',
+      FAILED: '#d83354',
+      SUCCEEDED: '#36a94b',
+      SUPERSEDED: '#db7923',
+      CANCELED: '#dcdcdc',
+      RESUMED: '#86daa6'
+    },
+    palest: {
+      STARTED: '#6a9fd4',
+      FAILED: '#d64c68',
+      SUCCEEDED: '#54c869',
+      SUPERSEDED: '#db7923',
+      CANCELED: '#eeeeee',
+      RESUMED: '#a2f5c5'
+    }
+  }
+];
 
 const getStageDetails = (pipelineDetails, stageName) => {
   return _.find({name: stageName}, pipelineDetails.pipeline.stages);
@@ -63,20 +81,21 @@ exports.handler = async (event, context) => {
   const stage = getStageDetails(pipelineDetails, event.detail.stage);
   const nbAction = _.size(_.get('actions', stage));
 
-  let title, text;
+  let title, text, color;
   if (EVENT_TYPES.pipeline === event['detail-type']) {
     text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
     title = `${projectName} (${env})`;
+    color = COLOR_CODES[event.detail.state];
   } else if (EVENT_TYPES.stage === event['detail-type']) {
     text = `Stage *${event.detail.stage}* just *${event.detail.state.toLowerCase()}*`;
+    color = COLOR_CODES.pale[event.detail.state];
   } else if (EVENT_TYPES.action === event['detail-type']) {
     const actionIndexInStage = _.findIndex({name: event.detail.action}, stage.actions);
     text = `Action *${event.detail.action}* _(stage *${event.detail.stage}* *[${actionIndexInStage +
       1}/${nbAction}]*)_ just *${event.detail.state.toLowerCase()}*`;
+    color = COLOR_CODES.palest[event.detail.state];
   }
-  const attachments = [
-    {title, text, color: COLOR_CODES[event.detail.state] || '#dddddd', mrkdwn_in: ['text']}
-  ];
+  const attachments = [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
 
   if (event.detail.state === 'STARTED' && EVENT_TYPES.pipeline === event['detail-type']) {
     const slackPostedMessage = await web.chat.postMessage({
@@ -158,8 +177,6 @@ exports.handler = async (event, context) => {
     });
     if (EVENT_TYPES.pipeline === event['detail-type']) {
       const state = event.detail.state;
-      // update status
-      // STARTED FAILED SUCCEEDED SUPERSEDED CANCELED RESUMED:
       const extraMessage = {
         SUCCEEDED: 'Operation is now *Completed!*',
         RESUMED: "Operation was *Resumed*, it's now in progress",
@@ -167,7 +184,7 @@ exports.handler = async (event, context) => {
         SUPERSEDED: 'Operation was *Superseded* while waiting, see next build',
         FAILED: `Operation is in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
       }[state];
-      
+
       await web.chat.update({
         as_user: true,
         channel,
@@ -176,7 +193,7 @@ exports.handler = async (event, context) => {
           {
             text: commitDetailsMessage,
             mrkdwn_in: ['text'],
-            color: COLOR_CODES[state]
+            color: COLOR_CODES.palest[state]
           },
           {
             text: extraMessage,
