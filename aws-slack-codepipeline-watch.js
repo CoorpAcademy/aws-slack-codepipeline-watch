@@ -60,6 +60,9 @@ exports.handler = async (event, context) => {
   const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
   const details = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}
 _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
+  const stage = getStageDetails(pipelineDetails, event.detail.stage);
+  const nbAction = _.size(_.get('actions', stage));
+
   let title, text;
   if (EVENT_TYPES.pipeline === event['detail-type']) {
     text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
@@ -67,7 +70,10 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
   } else if (EVENT_TYPES.stage === event['detail-type']) {
     text = `Stage *${event.detail.stage}* just *${event.detail.state.toLowerCase()}*`;
   } else if (EVENT_TYPES.action === event['detail-type']) {
-    text = `Action *${event.detail.action}* just *${event.detail.state.toLowerCase()}*`;
+    const actionIndexInStage = _.findIndex({name: event.detail.action}, stage.actions);
+    text = `Action *${event.detail.action}* ${actionIndexInStage + 1}/${nbAction} of stage *${
+      event.detail.stage
+    }* just *${event.detail.state.toLowerCase()}*`;
   }
   const attachments = [
     {title, text, color: COLOR_CODES[event.detail.state] || '#dddddd', mrkdwn_in: ['text']}
@@ -93,8 +99,7 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
     return 'Message Acknowledge';
   } else {
     if (EVENT_TYPES.action === event['detail-type']) {
-      const stage = getStageDetails(pipelineDetails, _.get('detail.stage', event));
-      if (_.size(_.get('actions', stage)) === 1) return 'Message Acknowledge';
+      if (nbAction === 1) return 'Message Acknowledge';
     }
     const dynamoParams = {
       TableName: dynamodbTable,
