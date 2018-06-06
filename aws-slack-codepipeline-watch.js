@@ -74,6 +74,7 @@ const shouldProceed = (event, currentStage, currentActions) => {
       }
     ];
   }
+  return [currentStage === null, {currentStage: null, currentActions: []}];
 };
 
 exports.handler = async (event, context) => {
@@ -131,19 +132,23 @@ exports.handler = async (event, context) => {
     return 'Message Acknowledge';
   }
 
-  const dynamoParams = {
-    TableName: dynamodbTable,
-    Key: {projectName, executionId: pipelineExecutionId}
-  };
-
   const getRecord = async params => {
     const record = await docClient.getAsync(params);
     if (record.Item) return record;
     await Promise.delay(500);
     return getRecord(params);
   };
-  const doc = await getRecord(dynamoParams);
+  const doc = await getRecord({
+    TableName: dynamodbTable,
+    Key: {projectName, executionId: pipelineExecutionId}
+  });
   const {currentStage, currentActions, codepipelineDetails, pendingMessages} = doc.Item;
+  const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
+  const commitId = artifactRevision && artifactRevision.revisionId;
+  const shortCommitId = commitId && commitId.slice(0, 8);
+  const commitMessage = artifactRevision && artifactRevision.revisionSummary;
+  const commitUrl = artifactRevision && artifactRevision.revisionUrl;
+  const commitDetailsMessage = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}`;
 
   const [guard, update] = shouldProceed(event, currentStage, currentActions);
   if (!guard) {
@@ -164,36 +169,73 @@ exports.handler = async (event, context) => {
     ExpressionAttributeValues: {':ca': update.currentActions, ':sa': update.currentStage}
   });
 
-  const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
-  const commitId = artifactRevision && artifactRevision.revisionId;
-  const shortCommitId = commitId && commitId.slice(0, 8);
-  const commitMessage = artifactRevision && artifactRevision.revisionSummary;
-  const commitUrl = artifactRevision && artifactRevision.revisionUrl;
+  const attachmentForEvent = ev => {
+    const stage = getStageDetails(codepipelineDetails, ev.detail.stage);
+    const nbAction = _.size(_.get('actions', stage));
+    let title, text, color;
+    if (EVENT_TYPES.pipeline === ev['detail-type']) {
+      text = `Deployment just *${ev.detail.state.toLowerCase()}* <${link}|🔗>`;
+      title = `${projectName} (${env})`;
+      color = COLOR_CODES[ev.detail.state];
+    } else if (EVENT_TYPES.stage === ev['detail-type']) {
+      text = `Stage *${ev.detail.stage}* just *${ev.detail.state.toLowerCase()}*`;
+      color = COLOR_CODES.pale[ev.detail.state];
+    } else if (EVENT_TYPES.action === ev['detail-type']) {
+      const actionIndexInStage = _.findIndex({name: ev.detail.action}, stage.actions);
+      text = `> Action *${ev.detail.action}* _(stage *${ev.detail.stage}* *[${actionIndexInStage +
+        1}/${nbAction}]*)_ just *${ev.detail.state.toLowerCase()}*`;
+      color = COLOR_CODES.palest[ev.detail.state];
+    }
+    return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
+  };
 
-  const commitDetailsMessage = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}`;
-  const stage = getStageDetails(codepipelineDetails, event.detail.stage);
-  const nbAction = _.size(_.get('actions', stage));
+  const handleEvent = async ev => {
+    await web.chat.postMessage({
+      as_user: true,
+      channel,
+      attachments: attachmentForEvent(ev),
+      thread_ts: doc.Item.slackThreadTs
+    });
+    // Update pipeline on treated messages
+    if (EVENT_TYPES.pipeline === ev['detail-type']) {
+      const state = ev.detail.state;
+      const extraMessage = {
+        SUCCEEDED: 'Operation is now *Completed!*',
+        RESUMED: "Operation was *Resumed*, it's now in progress",
+        CANCELED: 'Operation was *Canceled*',
+        SUPERSEDED: 'Operation was *Superseded* while waiting, see next build',
+        FAILED: `Operation is in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
+      }[state];
 
-  let title, text, color;
-  if (EVENT_TYPES.pipeline === event['detail-type']) {
-    text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
-    title = `${projectName} (${env})`;
-    color = COLOR_CODES[event.detail.state];
-  } else if (EVENT_TYPES.stage === event['detail-type']) {
-    text = `Stage *${event.detail.stage}* just *${event.detail.state.toLowerCase()}*`;
-    color = COLOR_CODES.pale[event.detail.state];
-  } else if (EVENT_TYPES.action === event['detail-type']) {
-    const actionIndexInStage = _.findIndex({name: event.detail.action}, stage.actions);
-    text = `> Action *${event.detail.action}* _(stage *${
-      event.detail.stage
-    }* *[${actionIndexInStage + 1}/${nbAction}]*)_ just *${event.detail.state.toLowerCase()}*`;
-    color = COLOR_CODES.palest[event.detail.state];
-  }
-  const attachments = [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
+      await web.chat.update({
+        as_user: true,
+        channel,
+        attachments: [
+          ...doc.Item.originalMessage,
+          {
+            text: commitDetailsMessage,
+            mrkdwn_in: ['text'],
+            color: COLOR_CODES.palest[state]
+          },
+          {
+            text: extraMessage,
+            mrkdwn_in: ['text'],
+            color: COLOR_CODES[state]
+          }
+        ],
+        ts: doc.Item.slackThreadTs
+      });
+    }
+  };
 
-  if (EVENT_TYPES.action === event['detail-type']) {
-    if (nbAction === 1) return 'Message Acknowledge';
-  }
+  const eventCurrentStage = getStageDetails(codepipelineDetails, event.detail.stage);
+  if (
+    !(
+      EVENT_TYPES.action === event['detail-type'] &&
+      _.size(_.get('actions', eventCurrentStage)) <= 1
+    )
+  )
+    await handleEvent(event);
 
   if (doc.Item && !doc.Item.resolvedCommit && artifactRevision) {
     await docClient.updateAsync({
@@ -203,48 +245,6 @@ exports.handler = async (event, context) => {
       ExpressionAttributeNames: {'#resolvedCommit': 'resolvedCommit'},
       ExpressionAttributeValues: {':resolvedCommit': true}
     });
-    return Promise.all([
-      web.chat.update({
-        as_user: true,
-        channel,
-        attachments: [
-          ...doc.Item.originalMessage,
-          {
-            text: commitDetailsMessage,
-            mrkdwn_in: ['text']
-          }
-        ],
-        ts: doc.Item.slackThreadTs
-      }),
-      web.chat.postMessage({
-        as_user: true,
-        channel,
-        attachments,
-        thread_ts: doc.Item.slackThreadTs
-      })
-    ]);
-  }
-
-  if (!_.isEmpty(pendingMessages)) {
-    // §TODO Handling pending messages
-    // Iterate and treat them as going
-  }
-
-  await web.chat.postMessage({
-    as_user: true,
-    channel,
-    attachments,
-    thread_ts: doc.Item.slackThreadTs
-  });
-  if (EVENT_TYPES.pipeline === event['detail-type']) {
-    const state = event.detail.state;
-    const extraMessage = {
-      SUCCEEDED: 'Operation is now *Completed!*',
-      RESUMED: "Operation was *Resumed*, it's now in progress",
-      CANCELED: 'Operation was *Canceled*',
-      SUPERSEDED: 'Operation was *Superseded* while waiting, see next build',
-      FAILED: `Operation is in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
-    }[state];
 
     await web.chat.update({
       as_user: true,
@@ -253,18 +253,18 @@ exports.handler = async (event, context) => {
         ...doc.Item.originalMessage,
         {
           text: commitDetailsMessage,
-          mrkdwn_in: ['text'],
-          color: COLOR_CODES.palest[state]
-        },
-        {
-          text: extraMessage,
-          mrkdwn_in: ['text'],
-          color: COLOR_CODES[state]
+          mrkdwn_in: ['text']
         }
       ],
       ts: doc.Item.slackThreadTs
     });
   }
+
+  if (!_.isEmpty(pendingMessages)) {
+    // §TODO Handling pending messages
+    // Iterate and treat them as going
+  }
+
   await updateRecord;
 
   return 'Acknoledge Event';
