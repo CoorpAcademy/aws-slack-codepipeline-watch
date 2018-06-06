@@ -51,6 +51,20 @@ const getStageDetails = (pipelineDetails, stageName) => {
   return _.find({name: stageName}, pipelineDetails.pipeline.stages);
 };
 
+const shouldProceed = (event, currentStage, currentActions) => {
+  // §maybe returned new status
+  if (event['detail-type'] === EVENT_TYPES.stage) {
+    if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
+      return currentStage === null;
+    return _.isEmpty(currentActions) && event.detail.stage === currentStage;
+  }
+  if (event['detail-type'] === EVENT_TYPES.action) {
+    if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
+      return _.isEmpty(currentActions);
+    return _.incudes(event.detail.action, currentActions);
+  }
+};
+
 exports.handler = async (event, context) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
@@ -115,6 +129,11 @@ exports.handler = async (event, context) => {
     return getRecord(params);
   };
   const doc = await getRecord(dynamoParams);
+  const {currentStage, currentActions, codepipelineDetails, pendingMessages} = doc.Item;
+
+  if (!shouldProceed(event, currentStage, currentActions)) {
+    // §TODO: add pending event to dynamo
+  }
 
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
@@ -123,7 +142,7 @@ exports.handler = async (event, context) => {
   const commitUrl = artifactRevision && artifactRevision.revisionUrl;
 
   const commitDetailsMessage = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}`;
-  const stage = getStageDetails(doc.Item.codepipelineDetails, event.detail.stage);
+  const stage = getStageDetails(codepipelineDetails, event.detail.stage);
   const nbAction = _.size(_.get('actions', stage));
 
   let title, text, color;
@@ -142,10 +161,6 @@ exports.handler = async (event, context) => {
     color = COLOR_CODES.palest[event.detail.state];
   }
   const attachments = [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
-
-  if (event.detail.state === 'STARTED')
-    // delai stage and action start. (differentialy to avoid crossing)
-    await Promise.delay(EVENT_TYPES.action === event['detail-type'] ? 5000 : 2500);
 
   if (EVENT_TYPES.action === event['detail-type']) {
     if (nbAction === 1) return 'Message Acknowledge';
@@ -181,7 +196,11 @@ exports.handler = async (event, context) => {
     ]);
   }
 
-  web.chat.postMessage({
+  if (!_.isEmpty(pendingMessages)) {
+    // §TODO HAndling pending messages
+  }
+
+  await web.chat.postMessage({
     as_user: true,
     channel,
     attachments,
