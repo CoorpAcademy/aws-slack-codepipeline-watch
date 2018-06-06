@@ -22,32 +22,30 @@ const EVENT_TYPES = {
   action: 'CodePipeline Action Execution State Change'
 };
 
-const COLOR_CODES = [
-  {
-    STARTED: '#38d',
-    FAILED: '#dc143c',
-    SUCCEEDED: '#1b9932',
+const COLOR_CODES = {
+  STARTED: '#38d',
+  FAILED: '#dc143c',
+  SUCCEEDED: '#1b9932',
+  SUPERSEDED: '#db7923',
+  CANCELED: '#bbbbbb',
+  RESUMED: '#5eba81',
+  pale: {
+    STARTED: '#4d90d4',
+    FAILED: '#d83354',
+    SUCCEEDED: '#36a94b',
     SUPERSEDED: '#db7923',
-    CANCELED: '#bbbbbb',
-    RESUMED: '#5eba81',
-    pale: {
-      STARTED: '#4d90d4',
-      FAILED: '#d83354',
-      SUCCEEDED: '#36a94b',
-      SUPERSEDED: '#db7923',
-      CANCELED: '#dcdcdc',
-      RESUMED: '#86daa6'
-    },
-    palest: {
-      STARTED: '#6a9fd4',
-      FAILED: '#d64c68',
-      SUCCEEDED: '#54c869',
-      SUPERSEDED: '#db7923',
-      CANCELED: '#eeeeee',
-      RESUMED: '#a2f5c5'
-    }
+    CANCELED: '#dcdcdc',
+    RESUMED: '#86daa6'
+  },
+  palest: {
+    STARTED: '#6a9fd4',
+    FAILED: '#d64c68',
+    SUCCEEDED: '#54c869',
+    SUPERSEDED: '#db7923',
+    CANCELED: '#eeeeee',
+    RESUMED: '#a2f5c5'
   }
-];
+};
 
 const getStageDetails = (pipelineDetails, stageName) => {
   return _.find({name: stageName}, pipelineDetails.pipeline.stages);
