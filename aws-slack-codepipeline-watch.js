@@ -84,12 +84,18 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
 
     return 'Message Acknowledge';
   } else {
-    const params = {
+    const dynamoParams = {
       TableName: dynamodbTable,
       Key: {projectName, executionId: pipelineExecutionId}
     };
 
-    const doc = await docClient.getAsync(params);
+    const getRecord = async params => {
+      const record = await docClient.getAsync(params);
+      if (record.Item) return record;
+      await Promise.delay(500);
+      return getRecord(params);
+    };
+    const doc = await getRecord(dynamoParams);
     if (doc.Item && !doc.Item.resolvedCommit && artifactRevision) {
       await docClient.updateAsync({
         TableName: dynamodbTable,
