@@ -1,6 +1,7 @@
 const {WebClient} = require('@slack/client');
 const AWS = require('aws-sdk');
 const Promise = require('bluebird');
+const _ = require('lodash/fp');
 
 const codepipeline = Promise.promisifyAll(new AWS.CodePipeline({apiVersion: '2015-07-09'}));
 const docClient = Promise.promisifyAll(new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'}));
@@ -30,6 +31,10 @@ const COLOR_CODES = {
   RESUMED: '#5eba81'
 };
 
+const getStageDetails = (pipelineDetails, stageName) => {
+  return _.find({name: stageName}, pipelineDetails.pipeline.stages);
+};
+
 exports.handler = async (event, context) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
@@ -37,10 +42,13 @@ exports.handler = async (event, context) => {
   const pipelineName = event.detail.pipeline;
   const pipelineExecutionId = event.detail['execution-id'];
 
-  const pipelineData = await codepipeline.getPipelineExecutionAsync({
-    pipelineExecutionId,
-    pipelineName
-  });
+  const [pipelineData, pipelineDetails] = await Promise.all([
+    codepipeline.getPipelineExecutionAsync({
+      pipelineExecutionId,
+      pipelineName
+    }),
+    codepipeline.getPipelineAsync({name: pipelineName})
+  ]);
 
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
@@ -84,6 +92,10 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
 
     return 'Message Acknowledge';
   } else {
+    if (EVENT_TYPES.action === event['detail-type']) {
+      const stage = getStageDetails(pipelineDetails, _.get('detail.stage', event));
+      if (_.size(_.get('actions', stage)) === 1) return 'Message Acknowledge';
+    }
     const dynamoParams = {
       TableName: dynamodbTable,
       Key: {projectName, executionId: pipelineExecutionId}
