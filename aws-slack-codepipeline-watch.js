@@ -52,16 +52,27 @@ const getStageDetails = (pipelineDetails, stageName) => {
 };
 
 const shouldProceed = (event, currentStage, currentActions) => {
-  // §maybe returned new status
   if (event['detail-type'] === EVENT_TYPES.stage) {
     if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
-      return currentStage === null;
-    return _.isEmpty(currentActions) && event.detail.stage === currentStage;
+      return [currentStage === null, {currentStage: event.detail.stage, currentActions: []}];
+    return [
+      _.isEmpty(currentActions) && event.detail.stage === currentStage,
+      {currentStage: null, currentActions: []}
+    ];
   }
   if (event['detail-type'] === EVENT_TYPES.action) {
     if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
-      return _.isEmpty(currentActions);
-    return _.includes(event.detail.action, currentActions);
+      return [
+        _.isEmpty(currentActions) && currentStage === event.detail.stage,
+        {currentStage, currentActions: [...currentActions, event.detail.action]}
+      ];
+    return [
+      _.includes(event.detail.action, currentActions),
+      {
+        currentStage,
+        currentActions: _.filter(action => action !== event.detail.action, currentActions)
+      }
+    ];
   }
 };
 
@@ -104,7 +115,9 @@ exports.handler = async (event, context) => {
           originalMessage: startAttachments,
           resolvedCommit: false,
           codepipelineDetails: await codepipeline.getPipelineAsync({name: pipelineName}),
-          pendingMessages: []
+          pendingMessages: [],
+          currentActions: [],
+          currentStage: null
         }
       }),
       web.chat.postMessage({
@@ -132,7 +145,8 @@ exports.handler = async (event, context) => {
   const doc = await getRecord(dynamoParams);
   const {currentStage, currentActions, codepipelineDetails, pendingMessages} = doc.Item;
 
-  if (!shouldProceed(event, currentStage, currentActions)) {
+  const [guard, update] = shouldProceed(event, currentStage, currentActions);
+  if (!guard) {
     return docClient.updateAsync({
       TableName: dynamodbTable,
       Key: {projectName, executionId: pipelineExecutionId},
@@ -140,7 +154,15 @@ exports.handler = async (event, context) => {
       ExpressionAttributeNames: {'#list': 'pendingMessages'},
       ExpressionAttributeValues: {':event': [event]}
     });
-  } 
+  }
+
+  const updateRecord = docClient.updateAsync({
+    TableName: dynamodbTable,
+    Key: {projectName, executionId: pipelineExecutionId},
+    UpdateExpression: 'SET #actions = :ca, #stage = :sa ',
+    ExpressionAttributeNames: {'#actions': 'currentActions', '#stage': 'currentStage'},
+    ExpressionAttributeValues: {':ca': update.currentActions, ':sa': update.currentStage}
+  });
 
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
@@ -243,6 +265,7 @@ exports.handler = async (event, context) => {
       ts: doc.Item.slackThreadTs
     });
   }
+  await updateRecord;
 
   return 'Acknoledge Event';
 };
