@@ -71,9 +71,8 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
     text = `Stage *${event.detail.stage}* just *${event.detail.state.toLowerCase()}*`;
   } else if (EVENT_TYPES.action === event['detail-type']) {
     const actionIndexInStage = _.findIndex({name: event.detail.action}, stage.actions);
-    text = `Action *${event.detail.action}* ${actionIndexInStage + 1}/${nbAction} of stage *${
-      event.detail.stage
-    }* just *${event.detail.state.toLowerCase()}*`;
+    text = `Action *${event.detail.action}* _(stage *${event.detail.stage}* *[${actionIndexInStage +
+      1}/${nbAction}]*)_ just *${event.detail.state.toLowerCase()}*`;
   }
   const attachments = [
     {title, text, color: COLOR_CODES[event.detail.state] || '#dddddd', mrkdwn_in: ['text']}
