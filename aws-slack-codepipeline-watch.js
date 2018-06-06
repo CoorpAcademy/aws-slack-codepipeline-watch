@@ -156,6 +156,38 @@ exports.handler = async (event, context) => {
       attachments,
       thread_ts: doc.Item.slackThreadTs
     });
+    if (EVENT_TYPES.pipeline === event['detail-type']) {
+      const state = event.detail.state;
+      // update status
+      // STARTED FAILED SUCCEEDED SUPERSEDED CANCELED RESUMED:
+      const extraMessage = {
+        SUCCEEDED: 'Operation is now *Completed!*',
+        RESUMED: "Operation was *Resumed*, it's now in progress",
+        CANCELED: 'Operation was *Canceled*',
+        SUPERSEDED: 'Operation was *Superseded* while waiting, see next build',
+        FAILED: `Operation is in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
+      }[state];
+      
+      await web.chat.update({
+        as_user: true,
+        channel,
+        attachments: [
+          ...doc.Item.originalMessage,
+          {
+            text: commitDetailsMessage,
+            mrkdwn_in: ['text'],
+            color: COLOR_CODES[state]
+          },
+          {
+            text: extraMessage,
+            mrkdwn_in: ['text'],
+            color: COLOR_CODES[state]
+          }
+        ],
+        ts: doc.Item.slackThreadTs
+      });
+    }
+
     return 'Acknoledge Event';
   }
 };
