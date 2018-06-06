@@ -58,8 +58,8 @@ exports.handler = async (event, context) => {
   const env = /staging/.test(pipelineName) ? 'staging' : 'production';
   const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
   const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
-  const details = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}
-_(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
+  const commitDetailsMessage = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}`;
+  const pipelineExectionMessage = `\`execution-id\`: <${link}/history|${pipelineExecutionId}>`;
   const stage = getStageDetails(pipelineDetails, event.detail.stage);
   const nbAction = _.size(_.get('actions', stage));
 
@@ -84,16 +84,24 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
       channel,
       attachments
     });
-    await docClient.putAsync({
-      TableName: dynamodbTable,
-      Item: {
-        projectName,
-        executionId: pipelineExecutionId,
-        slackThreadTs: slackPostedMessage.message.ts,
-        originalMessage: attachments,
-        resolvedCommit: false
-      }
-    });
+    await Promise.all([
+      docClient.putAsync({
+        TableName: dynamodbTable,
+        Item: {
+          projectName,
+          executionId: pipelineExecutionId,
+          slackThreadTs: slackPostedMessage.message.ts,
+          originalMessage: attachments,
+          resolvedCommit: false
+        }
+      }),
+      web.chat.postMessage({
+        as_user: true,
+        channel,
+        text: pipelineExectionMessage,
+        thread_ts: slackPostedMessage.message.ts
+      })
+    ]);
 
     return 'Message Acknowledge';
   } else {
@@ -127,7 +135,7 @@ _(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
           attachments: [
             ...doc.Item.originalMessage,
             {
-              text: details,
+              text: commitDetailsMessage,
               mrkdwn_in: ['text']
             }
           ],
