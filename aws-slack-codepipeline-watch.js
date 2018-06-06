@@ -30,127 +30,101 @@ const COLOR_CODES = {
   RESUMED: '#5eba81'
 };
 
-exports.handler = (event, context, callback) => {
+exports.handler = async (event, context) => {
   if (event.source !== 'aws.codepipeline')
-    return callback(new Error(`Called from wrong source ${event.source}`));
+    throw new Error(`Called from wrong source ${event.source}`);
 
   const pipelineName = event.detail.pipeline;
   const pipelineExecutionId = event.detail['execution-id'];
 
-  codepipeline.getPipelineExecution({pipelineExecutionId, pipelineName}, function(
-    err,
-    pipelineData
-  ) {
-    if (err) return callback(err);
-    const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
-    const commitId = artifactRevision && artifactRevision.revisionId;
-    const shortCommitId = commitId && commitId.slice(0, 8);
-    const commitMessage = artifactRevision && artifactRevision.revisionSummary;
-    const commitUrl = artifactRevision && artifactRevision.revisionUrl;
-    const env = /staging/.test(pipelineName) ? 'staging' : 'production';
-    const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
-    const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
-    const details = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}
-_(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
-    let title, text;
-    if (EVENT_TYPES.pipeline === event['detail-type']) {
-      text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
-      title = `${projectName} (${env})`;
-    } else if (EVENT_TYPES.stage === event['detail-type']) {
-      text = `Stage *${event.detail.stage}* just *${event.detail.state.toLowerCase()}*`;
-    } else if (EVENT_TYPES.action === event['detail-type']) {
-      text = `Action *${event.detail.action}* just *${event.detail.state.toLowerCase()}*`;
-    }
-    const attachments = [
-      {title, text, color: COLOR_CODES[event.detail.state] || '#dddddd', mrkdwn_in: ['text']}
-    ];
+  const pipelineData = await codepipeline.getPipelineExecutionAsync({
+    pipelineExecutionId,
+    pipelineName
+  });
 
-    if (event.detail.state === 'STARTED' && EVENT_TYPES.pipeline === event['detail-type']) {
-      web.chat
-        .postMessage({
+  const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
+  const commitId = artifactRevision && artifactRevision.revisionId;
+  const shortCommitId = commitId && commitId.slice(0, 8);
+  const commitMessage = artifactRevision && artifactRevision.revisionSummary;
+  const commitUrl = artifactRevision && artifactRevision.revisionUrl;
+  const env = /staging/.test(pipelineName) ? 'staging' : 'production';
+  const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
+  const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
+  const details = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}
+_(\`execution-id\`: <${link}/history|${pipelineExecutionId}>)_`;
+  let title, text;
+  if (EVENT_TYPES.pipeline === event['detail-type']) {
+    text = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
+    title = `${projectName} (${env})`;
+  } else if (EVENT_TYPES.stage === event['detail-type']) {
+    text = `Stage *${event.detail.stage}* just *${event.detail.state.toLowerCase()}*`;
+  } else if (EVENT_TYPES.action === event['detail-type']) {
+    text = `Action *${event.detail.action}* just *${event.detail.state.toLowerCase()}*`;
+  }
+  const attachments = [
+    {title, text, color: COLOR_CODES[event.detail.state] || '#dddddd', mrkdwn_in: ['text']}
+  ];
+
+  if (event.detail.state === 'STARTED' && EVENT_TYPES.pipeline === event['detail-type']) {
+    const slackPostedMessage = await web.chat.postMessage({
+      as_user: true,
+      channel,
+      attachments
+    });
+    await docClient.putAsync({
+      TableName: dynamodbTable,
+      Item: {
+        projectName,
+        executionId: pipelineExecutionId,
+        slackThreadTs: slackPostedMessage.message.ts,
+        originalMessage: attachments,
+        resolvedCommit: false
+      }
+    });
+
+    return 'Message Acknowledge';
+  } else {
+    const params = {
+      TableName: dynamodbTable,
+      Key: {projectName, executionId: pipelineExecutionId}
+    };
+
+    const doc = await docClient.getAsync(params);
+    if (doc.Item && !doc.Item.resolvedCommit && artifactRevision) {
+      await docClient.updateAsync({
+        TableName: dynamodbTable,
+        Key: {projectName, executionId: pipelineExecutionId},
+        UpdateExpression: 'set #a = true',
+        ExpressionAttributeNames: {'#a': 'resolvedCommit'}
+      });
+      return Promise.all([
+        web.chat.update({
           as_user: true,
           channel,
-          attachments
-        })
-        .then(res =>
-          docClient.put(
+          attachments: [
+            ...doc.Item.originalMessage,
             {
-              TableName: dynamodbTable,
-              Item: {
-                projectName,
-                executionId: pipelineExecutionId,
-                slackThreadTs: res.message.ts,
-                originalMessage: attachments,
-                resolvedCommit: false
-              }
-            },
-            (dynamoErr, ack) => {
-              if (dynamoErr) return callback(dynamoErr);
-              return callback(null, 'Message Acknowledge');
+              text: details,
+              mrkdwn_in: ['text']
             }
-          )
-        )
-        .catch(callback);
-    } else {
-      const params = {
-        TableName: dynamodbTable,
-        Key: {projectName, executionId: pipelineExecutionId}
-      };
-
-      docClient.get(params, function(dynamoErr, doc) {
-        if (err) {
-          return callback(dynamoErr);
-        } else {
-          if (doc.Item && !doc.Item.resolvedCommit && artifactRevision)
-            return docClient.update(
-              {
-                TableName: dynamodbTable,
-                Key: {projectName, executionId: pipelineExecutionId},
-                UpdateExpression: 'set #a = true',
-                ExpressionAttributeNames: {'#a': 'resolvedCommit'}
-              },
-              dynamoErr2 => {
-                Promise.all([
-                  web.chat.update({
-                    as_user: true,
-                    channel,
-                    attachments: [
-                      ...doc.Item.originalMessage,
-                      {
-                        text: details,
-                        mrkdwn_in: ['text']
-                      }
-                    ],
-                    ts: doc.Item.slackThreadTs
-                  }),
-                  web.chat.postMessage({
-                    as_user: true,
-                    channel,
-                    attachments,
-                    thread_ts: doc.Item.slackThreadTs
-                  })
-                ])
-
-                  .then(res => {
-                    return callback(null, 'Acknoledge Event');
-                  })
-                  .catch(callback);
-              }
-            );
-
-          web.chat
-            .postMessage({
-              as_user: true,
-              channel,
-              attachments,
-              thread_ts: doc.Item.slackThreadTs
-            })
-            .then(res => {
-              return callback(null, 'Acknoledge Event');
-            })
-            .catch(callback);
-        }
-      });
+          ],
+          ts: doc.Item.slackThreadTs
+        }),
+        web.chat.postMessage({
+          as_user: true,
+          channel,
+          attachments,
+          thread_ts: doc.Item.slackThreadTs
+        })
+      ]);
     }
-  });
+
+    web.chat.postMessage({
+      as_user: true,
+      channel,
+      attachments,
+      thread_ts: doc.Item.slackThreadTs
+    });
+    return 'Acknoledge Event';
+  }
 };
