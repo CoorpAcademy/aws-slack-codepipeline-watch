@@ -1,8 +1,9 @@
 const {WebClient} = require('@slack/client');
 const AWS = require('aws-sdk');
+const Promise = require('bluebird');
 
-const codepipeline = new AWS.CodePipeline({apiVersion: '2015-07-09'});
-const docClient = new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'});
+const codepipeline = Promise.promisifyAll(new AWS.CodePipeline({apiVersion: '2015-07-09'}));
+const docClient = Promise.promisifyAll(new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'}));
 const token = process.env.SLACK_TOKEN;
 if (!token) throw new Error('Need a valid token defined in SLACK_TOKEN');
 

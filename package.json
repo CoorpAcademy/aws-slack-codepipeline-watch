@@ -15,7 +15,8 @@
   "author": "Adrien Becchis",
   "license": "ISC",
   "dependencies": {
-    "@slack/client": "^4.2.2"
+    "@slack/client": "^4.2.2",
+    "bluebird": "^3.5.1"
   },
   "devDependencies": {
     "@coorpacademy/eslint-plugin-coorpacademy": "^8.1.1",
