@@ -108,7 +108,6 @@ exports.handler = async (event, context) => {
       channel,
       attachments: startAttachments
     });
-    const codepipelineDetails = await codepipeline.getPipelineAsync({name: pipelineName});
     await Promise.all([
       docClient.putAsync({
         TableName: dynamodbTable,
@@ -118,7 +117,7 @@ exports.handler = async (event, context) => {
           slackThreadTs: slackPostedMessage.message.ts,
           originalMessage: startAttachments,
           resolvedCommit: false,
-          codepipelineDetails,
+          codepipelineDetails: (await codepipeline.getPipelineAsync({name: pipelineName})).pipeline,
           pendingMessages: {},
           currentActions: [],
           currentStage: null
@@ -159,6 +158,21 @@ exports.handler = async (event, context) => {
     action: event.detail.action,
     state: event.detail.state
   };
+  const pendingMessage = _.compact([
+    EVENT_TYPES[event['detail-type']],
+    event.detail.state,
+    event.detail.stage,
+    event.detail.action
+  ]).join(':');
+
+  ///SLACK DEBUGING
+  await web.chat.postMessage({
+    as_user: true,
+    channel,
+    text: `debug  ->  ${pendingMessage}`,
+    thread_ts: doc.Item.slackThreadTs
+  });
+  //*/
   const [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
   console.log(
     `guard: ${guard} ${event.detail.state} ${event.detail.stage} ${
@@ -166,12 +180,6 @@ exports.handler = async (event, context) => {
     } ${currentStage} ${currentActions} ${guard ? JSON.stringify(update) : ''}`
   );
   if (!guard) {
-    const pendingMessage = _.compact([
-      EVENT_TYPES[event['detail-type']],
-      event.detail.stage,
-      event.detail.action,
-      event.detail.state
-    ]).join(':');
     console.log(
       `CANT process, ${
         event['detail-type']
@@ -190,7 +198,7 @@ exports.handler = async (event, context) => {
       });
   }
   console.log({':ca': update.currentActions, ':sa': update.currentStage});
-  const updateRecord = docClient.updateAsync({
+  await docClient.updateAsync({
     TableName: dynamodbTable,
     Key: {projectName, executionId: pipelineExecutionId},
     UpdateExpression: 'SET #actions = :ca, #stage = :sa ',
@@ -211,9 +219,9 @@ exports.handler = async (event, context) => {
       text = `Stage *${stage}* just *${state.toLowerCase()}*`;
       color = COLOR_CODES.pale[state];
     } else if (detailType === 'action') {
-      const actionIndexInStage = _.findIndex({name: action}, stage.actions);
-      text = `> Action *${action}* _(stage *${stage}* *[${actionIndexInStage +
-        1}/${nbAction}]*)_ just *${state.toLowerCase()}*`;
+      const actionIndexInStage = _.findIndex({name: action}, stageDetails.actions);
+      text = `> Action *${action}* _(stage *${stage}* *[${1 +
+        actionIndexInStage}/${nbAction}]*)_ just *${state.toLowerCase()}*`;
       color = COLOR_CODES.palest[state];
     }
     return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
@@ -303,39 +311,36 @@ exports.handler = async (event, context) => {
     TableName: dynamodbTable,
     Key: {projectName, executionId: pipelineExecutionId}
   })).Item;
-  console.log(`there is ${_.size(pendingMessages)} pendingMessages`);
-  if (!_.isEmpty(pendingMessages)) {
-    // §TODO Handling pending messages
-    // Iterate and treat them as going
-    console.log('PENDING MESSAGES', pendingMessages);
-    // §FIXME here
-    const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
-    console.log('orderedEvents', orderedEvents);
 
+  if (!_.isEmpty(pendingMessages)) {
+    // Handling pending messages, Iterate and treat them as going
+    const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
+  
     const extractEventSummary = ev => {
       const eventPart = ev.split(':');
       return {
         type: eventPart[0],
-        stage: eventPart[1],
-        action: eventPart[2],
-        state: eventPart[3] || eventPart[2] || eventPart[1]
+        state: eventPart[1],
+        stage: eventPart[2],
+        action: eventPart[3]
       };
     };
     const treatOneEventAtATime = async (pendingEvents, cStage, cActions, handledMessages) => {
       const guardList = _.map(ev => {
         return shouldProceed(extractEventSummary(ev), cStage, cActions);
       }, pendingEvents);
-      if (!guardList[0][0]) return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
+      if (!guardList[0][0])
+        return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
 
-      const eventCurrentStage = getStageDetails(codepipelineDetails, event.detail.stage);
-      const eventSummary = extractEventSummary(pendingEvents[0]);
-      if (!(eventSummary.type === 'action' && _.size(_.get('actions', eventSummary.stage)) <= 1))
-        await handleEvent(eventSummary);
+      const _eventSummary = extractEventSummary(pendingEvents[0]);
+      const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
+      if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
+        await handleEvent(_eventSummary);
       if (pendingEvents.length === 1)
         return {
           pendingEvents,
-          currentStage: cStage, // §FIXME change value of stage on retrieval!!
-          currentActions: cActions,
+          currentStage: guardList[0][1].currentStage,
+          currentActions: guardList[0][1].currentActions,
           handledMessages: [...handledMessages, pendingEvents[0]]
         };
       return treatOneEventAtATime(
@@ -381,8 +386,6 @@ exports.handler = async (event, context) => {
       ]);
     }
   }
-
-  await updateRecord;
 
   return 'Acknoledge Event';
 };
