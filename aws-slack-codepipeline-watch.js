@@ -48,32 +48,34 @@ const COLOR_CODES = {
 };
 
 const getStageDetails = (pipelineDetails, stageName) => {
-  return _.find({name: stageName}, pipelineDetails.pipeline.stages);
+  return _.find({name: stageName}, pipelineDetails.stages);
 };
 
-const shouldProceed = (event, currentStage, currentActions) => {
-  if (EVENT_TYPES[event['detail-type']] === 'stage') {
-    if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
-      return [currentStage === null, {currentStage: event.detail.stage, currentActions: []}];
+const shouldProceed = ({type, stage, action, state}, currentStage, currentActions) => {
+  if (type === 'stage') {
+    if (state === 'STARTED' || state === 'RESUMED')
+      return [currentStage === null, {currentStage: stage, currentActions: []}];
     return [
-      _.isEmpty(currentActions) && event.detail.stage === currentStage,
+      _.isEmpty(currentActions) && stage === currentStage,
       {currentStage: null, currentActions: []}
     ];
   }
-  if (EVENT_TYPES[event['detail-type']] === 'action') {
-    if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
+
+  if (type === 'action') {
+    if (state === 'STARTED' || state === 'RESUMED')
       return [
-        _.isEmpty(currentActions) && currentStage === event.detail.stage,
-        {currentStage, currentActions: [...currentActions, event.detail.action]}
+        _.isEmpty(currentActions) && currentStage === stage,
+        {currentStage, currentActions: [...(currentActions || []), action]}
       ];
     return [
-      _.includes(event.detail.action, currentActions),
+      _.includes(action, currentActions),
       {
         currentStage,
-        currentActions: _.filter(action => action !== event.detail.action, currentActions)
+        currentActions: _.filter(_action => _action !== action, currentActions)
       }
     ];
   }
+  console.log('XXXXXXX', {type, stage, action, state});
   return [currentStage === null, {currentStage: null, currentActions: []}];
 };
 
@@ -106,6 +108,7 @@ exports.handler = async (event, context) => {
       channel,
       attachments: startAttachments
     });
+    const codepipelineDetails = await codepipeline.getPipelineAsync({name: pipelineName});
     await Promise.all([
       docClient.putAsync({
         TableName: dynamodbTable,
@@ -115,8 +118,8 @@ exports.handler = async (event, context) => {
           slackThreadTs: slackPostedMessage.message.ts,
           originalMessage: startAttachments,
           resolvedCommit: false,
-          codepipelineDetails: await codepipeline.getPipelineAsync({name: pipelineName}),
-          pendingMessages: [],
+          codepipelineDetails,
+          pendingMessages: {},
           currentActions: [],
           currentStage: null
         }
@@ -142,7 +145,7 @@ exports.handler = async (event, context) => {
     TableName: dynamodbTable,
     Key: {projectName, executionId: pipelineExecutionId}
   });
-  const {currentStage, currentActions, codepipelineDetails, pendingMessages} = doc.Item;
+  const {currentStage, currentActions, codepipelineDetails} = doc.Item;
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
   const shortCommitId = commitId && commitId.slice(0, 8);
@@ -150,17 +153,43 @@ exports.handler = async (event, context) => {
   const commitUrl = artifactRevision && artifactRevision.revisionUrl;
   const commitDetailsMessage = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}`;
 
-  const [guard, update] = shouldProceed(event, currentStage, currentActions);
+  const eventSummary = {
+    type: EVENT_TYPES[event['detail-type']],
+    stage: event.detail.stage,
+    action: event.detail.action,
+    state: event.detail.state
+  };
+  const [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
+  console.log(
+    `guard: ${guard} ${event.detail.state} ${event.detail.stage} ${
+      event.detail.action
+    } ${currentStage} ${currentActions} ${guard ? JSON.stringify(update) : ''}`
+  );
   if (!guard) {
-    return docClient.updateAsync({
-      TableName: dynamodbTable,
-      Key: {projectName, executionId: pipelineExecutionId},
-      UpdateExpression: 'SET #list = list_append(#list, :event)',
-      ExpressionAttributeNames: {'#list': 'pendingMessages'},
-      ExpressionAttributeValues: {':event': [event]}
-    });
+    const pendingMessage = _.compact([
+      EVENT_TYPES[event['detail-type']],
+      event.detail.stage,
+      event.detail.action,
+      event.detail.state
+    ]).join(':');
+    console.log(
+      `CANT process, ${
+        event['detail-type']
+      } due to ${currentStage} ${currentActions}->>${pendingMessage}`
+    );
+    return docClient
+      .updateAsync({
+        TableName: dynamodbTable,
+        Key: {projectName, executionId: pipelineExecutionId},
+        UpdateExpression: `SET #pmf.#pm = :ts`,
+        ExpressionAttributeNames: {'#pmf': 'pendingMessages', '#pm': pendingMessage},
+        ExpressionAttributeValues: {':ts': event.time}
+      })
+      .catch(err => {
+        console.error(pipelineExecutionId, err.message, pendingMessage);
+      });
   }
-
+  console.log({':ca': update.currentActions, ':sa': update.currentStage});
   const updateRecord = docClient.updateAsync({
     TableName: dynamodbTable,
     Key: {projectName, executionId: pipelineExecutionId},
@@ -169,37 +198,37 @@ exports.handler = async (event, context) => {
     ExpressionAttributeValues: {':ca': update.currentActions, ':sa': update.currentStage}
   });
 
-  const attachmentForEvent = ev => {
-    const stage = getStageDetails(codepipelineDetails, ev.detail.stage);
-    const nbAction = _.size(_.get('actions', stage));
+  const attachmentForEvent = ({type, stage, action, state}) => {
+    const stageDetails = getStageDetails(codepipelineDetails, stage);
+    const nbAction = _.size(_.get('actions', stageDetails));
     let title, text, color;
     const detailType = EVENT_TYPES[event['detail-type']];
     if (detailType === 'pipeline') {
-      text = `Deployment just *${ev.detail.state.toLowerCase()}* <${link}|🔗>`;
+      text = `Deployment just *${state.toLowerCase()}* <${link}|🔗>`;
       title = `${projectName} (${env})`;
-      color = COLOR_CODES[ev.detail.state];
+      color = COLOR_CODES[state];
     } else if (detailType === 'stage') {
-      text = `Stage *${ev.detail.stage}* just *${ev.detail.state.toLowerCase()}*`;
-      color = COLOR_CODES.pale[ev.detail.state];
+      text = `Stage *${stage}* just *${state.toLowerCase()}*`;
+      color = COLOR_CODES.pale[state];
     } else if (detailType === 'action') {
-      const actionIndexInStage = _.findIndex({name: ev.detail.action}, stage.actions);
-      text = `> Action *${ev.detail.action}* _(stage *${ev.detail.stage}* *[${actionIndexInStage +
-        1}/${nbAction}]*)_ just *${ev.detail.state.toLowerCase()}*`;
-      color = COLOR_CODES.palest[ev.detail.state];
+      const actionIndexInStage = _.findIndex({name: action}, stage.actions);
+      text = `> Action *${action}* _(stage *${stage}* *[${actionIndexInStage +
+        1}/${nbAction}]*)_ just *${state.toLowerCase()}*`;
+      color = COLOR_CODES.palest[state];
     }
     return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
   };
 
-  const handleEvent = async ev => {
+  const handleEvent = async ({type, stage, action, state}) => {
+    console.log(`HANDLING EVENT ${type} ${stage} ${action}`);
     await web.chat.postMessage({
       as_user: true,
       channel,
-      attachments: attachmentForEvent(ev),
+      attachments: attachmentForEvent({type, stage, action, state}),
       thread_ts: doc.Item.slackThreadTs
     });
     // Update pipeline on treated messages
-    if (EVENT_TYPES[ev['detail-type']] === 'pipeline') {
-      const state = ev.detail.state;
+    if (type === 'pipeline') {
       const extraMessage = {
         SUCCEEDED: 'Operation is now *Completed!*',
         RESUMED: "Operation was *Resumed*, it's now in progress",
@@ -236,7 +265,12 @@ exports.handler = async (event, context) => {
       _.size(_.get('actions', eventCurrentStage)) <= 1
     )
   )
-    await handleEvent(event);
+    await handleEvent({
+      type: EVENT_TYPES[event['detail-type']],
+      stage: event.detail.stage,
+      action: event.detail.action,
+      state: event.detail.state
+    });
 
   if (doc.Item && !doc.Item.resolvedCommit && artifactRevision) {
     await docClient.updateAsync({
@@ -261,9 +295,91 @@ exports.handler = async (event, context) => {
     });
   }
 
+  const {
+    pendingMessages,
+    currentStage: _currentStage,
+    currentActions: _currentActions
+  } = (await getRecord({
+    TableName: dynamodbTable,
+    Key: {projectName, executionId: pipelineExecutionId}
+  })).Item;
+  console.log(`there is ${_.size(pendingMessages)} pendingMessages`);
   if (!_.isEmpty(pendingMessages)) {
     // §TODO Handling pending messages
     // Iterate and treat them as going
+    console.log('PENDING MESSAGES', pendingMessages);
+    // §FIXME here
+    const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
+    console.log('orderedEvents', orderedEvents);
+
+    const extractEventSummary = ev => {
+      const eventPart = ev.split(':');
+      return {
+        type: eventPart[0],
+        stage: eventPart[1],
+        action: eventPart[2],
+        state: eventPart[3] || eventPart[2] || eventPart[1]
+      };
+    };
+    const treatOneEventAtATime = async (pendingEvents, cStage, cActions, handledMessages) => {
+      const guardList = _.map(ev => {
+        return shouldProceed(extractEventSummary(ev), cStage, cActions);
+      }, pendingEvents);
+      if (!guardList[0][0]) return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
+
+      const eventCurrentStage = getStageDetails(codepipelineDetails, event.detail.stage);
+      const eventSummary = extractEventSummary(pendingEvents[0]);
+      if (!(eventSummary.type === 'action' && _.size(_.get('actions', eventSummary.stage)) <= 1))
+        await handleEvent(eventSummary);
+      if (pendingEvents.length === 1)
+        return {
+          pendingEvents,
+          currentStage: cStage, // §FIXME change value of stage on retrieval!!
+          currentActions: cActions,
+          handledMessages: [...handledMessages, pendingEvents[0]]
+        };
+      return treatOneEventAtATime(
+        [..._.slice(1, pendingEvents.length, pendingEvents)],
+        update.currentStage,
+        update.currentActions,
+        [...handledMessages, pendingEvents[0]]
+      );
+    };
+    const newPending = await treatOneEventAtATime(
+      orderedEvents,
+      _currentStage,
+      _currentActions,
+      []
+    );
+    if (!_.isEmpty(newPending.handledMessages)) {
+      const disableMessages = Promise.map(newPending.handledMessages, handledMessage =>
+        docClient.updateAsync({
+          TableName: dynamodbTable,
+          Key: {projectName, executionId: pipelineExecutionId},
+          UpdateExpression: 'remove #pm.#pmf',
+          ExpressionAttributeNames: {
+            '#pm': 'pendingMessages',
+            '#pmf': handledMessage
+          }
+        })
+      );
+      await Promise.all([
+        disableMessages,
+        docClient.updateAsync({
+          TableName: dynamodbTable,
+          Key: {projectName, executionId: pipelineExecutionId},
+          UpdateExpression: 'set #cs = :cs, #ca = :ca',
+          ExpressionAttributeNames: {
+            '#ca': 'currentActions',
+            '#cs': 'currentStage'
+          },
+          ExpressionAttributeValues: {
+            ':cs': newPending.currentStage,
+            ':ca': newPending.currentActions
+          }
+        })
+      ]);
+    }
   }
 
   await updateRecord;
