@@ -17,9 +17,9 @@ if (!dynamodbTable) throw new Error('Need a valid chanel defined in DYNAMO_TABLE
 const web = new WebClient(token);
 
 const EVENT_TYPES = {
-  pipeline: 'CodePipeline Pipeline Execution State Change',
-  stage: 'CodePipeline Stage Execution State Change',
-  action: 'CodePipeline Action Execution State Change'
+  'CodePipeline Pipeline Execution State Change': 'pipeline',
+  'CodePipeline Stage Execution State Change': 'stage',
+  'CodePipeline Action Execution State Change': 'action'
 };
 
 const COLOR_CODES = {
@@ -52,7 +52,7 @@ const getStageDetails = (pipelineDetails, stageName) => {
 };
 
 const shouldProceed = (event, currentStage, currentActions) => {
-  if (event['detail-type'] === EVENT_TYPES.stage) {
+  if (EVENT_TYPES[event['detail-type']] === 'stage') {
     if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
       return [currentStage === null, {currentStage: event.detail.stage, currentActions: []}];
     return [
@@ -60,7 +60,7 @@ const shouldProceed = (event, currentStage, currentActions) => {
       {currentStage: null, currentActions: []}
     ];
   }
-  if (event['detail-type'] === EVENT_TYPES.action) {
+  if (EVENT_TYPES[event['detail-type']] === 'action') {
     if (event.detail.state === 'STARTED' || event.detail.state === 'RESUMED')
       return [
         _.isEmpty(currentActions) && currentStage === event.detail.stage,
@@ -93,7 +93,7 @@ exports.handler = async (event, context) => {
   const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
   const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
 
-  if (event.detail.state === 'STARTED' && EVENT_TYPES.pipeline === event['detail-type']) {
+  if (event.detail.state === 'STARTED' && EVENT_TYPES[event['detail-type']] === 'pipeline') {
     const startText = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
     const startTitle = `${projectName} (${env})`;
     const startAttachments = [
@@ -173,14 +173,15 @@ exports.handler = async (event, context) => {
     const stage = getStageDetails(codepipelineDetails, ev.detail.stage);
     const nbAction = _.size(_.get('actions', stage));
     let title, text, color;
-    if (EVENT_TYPES.pipeline === ev['detail-type']) {
+    const detailType = EVENT_TYPES[event['detail-type']];
+    if (detailType === 'pipeline') {
       text = `Deployment just *${ev.detail.state.toLowerCase()}* <${link}|🔗>`;
       title = `${projectName} (${env})`;
       color = COLOR_CODES[ev.detail.state];
-    } else if (EVENT_TYPES.stage === ev['detail-type']) {
+    } else if (detailType === 'stage') {
       text = `Stage *${ev.detail.stage}* just *${ev.detail.state.toLowerCase()}*`;
       color = COLOR_CODES.pale[ev.detail.state];
-    } else if (EVENT_TYPES.action === ev['detail-type']) {
+    } else if (detailType === 'action') {
       const actionIndexInStage = _.findIndex({name: ev.detail.action}, stage.actions);
       text = `> Action *${ev.detail.action}* _(stage *${ev.detail.stage}* *[${actionIndexInStage +
         1}/${nbAction}]*)_ just *${ev.detail.state.toLowerCase()}*`;
@@ -197,7 +198,7 @@ exports.handler = async (event, context) => {
       thread_ts: doc.Item.slackThreadTs
     });
     // Update pipeline on treated messages
-    if (EVENT_TYPES.pipeline === ev['detail-type']) {
+    if (EVENT_TYPES[ev['detail-type']] === 'pipeline') {
       const state = ev.detail.state;
       const extraMessage = {
         SUCCEEDED: 'Operation is now *Completed!*',
@@ -231,7 +232,7 @@ exports.handler = async (event, context) => {
   const eventCurrentStage = getStageDetails(codepipelineDetails, event.detail.stage);
   if (
     !(
-      EVENT_TYPES.action === event['detail-type'] &&
+      EVENT_TYPES[event['detail-type']] === 'action' &&
       _.size(_.get('actions', eventCurrentStage)) <= 1
     )
   )
