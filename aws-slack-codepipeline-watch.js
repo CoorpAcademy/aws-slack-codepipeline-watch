@@ -165,14 +165,13 @@ exports.handler = async (event, context) => {
     event.detail.action
   ]).join(':');
 
-  ///SLACK DEBUGING
+  // /SLACK DEBUGING
   await web.chat.postMessage({
-    as_user: true,
     channel,
     text: `debug  ->  ${pendingMessage}`,
     thread_ts: doc.Item.slackThreadTs
   });
-  //*/
+  //* /
   const [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
   console.log(
     `guard: ${guard} ${event.detail.state} ${event.detail.stage} ${
@@ -210,15 +209,14 @@ exports.handler = async (event, context) => {
     const stageDetails = getStageDetails(codepipelineDetails, stage);
     const nbAction = _.size(_.get('actions', stageDetails));
     let title, text, color;
-    const detailType = EVENT_TYPES[event['detail-type']];
-    if (detailType === 'pipeline') {
+    if (type === 'pipeline') {
       text = `Deployment just *${state.toLowerCase()}* <${link}|🔗>`;
       title = `${projectName} (${env})`;
       color = COLOR_CODES[state];
-    } else if (detailType === 'stage') {
+    } else if (type === 'stage') {
       text = `Stage *${stage}* just *${state.toLowerCase()}*`;
       color = COLOR_CODES.pale[state];
-    } else if (detailType === 'action') {
+    } else if (type === 'action') {
       const actionIndexInStage = _.findIndex({name: action}, stageDetails.actions);
       text = `> Action *${action}* _(stage *${stage}* *[${1 +
         actionIndexInStage}/${nbAction}]*)_ just *${state.toLowerCase()}*`;
@@ -263,24 +261,26 @@ exports.handler = async (event, context) => {
         ],
         ts: doc.Item.slackThreadTs
       });
+      return true;
     }
   };
 
   const eventCurrentStage = getStageDetails(codepipelineDetails, event.detail.stage);
+  let hasUpdatedMainMessage;
   if (
     !(
       EVENT_TYPES[event['detail-type']] === 'action' &&
       _.size(_.get('actions', eventCurrentStage)) <= 1
     )
   )
-    await handleEvent({
+    hasUpdatedMainMessage = await handleEvent({
       type: EVENT_TYPES[event['detail-type']],
       stage: event.detail.stage,
       action: event.detail.action,
       state: event.detail.state
     });
 
-  if (doc.Item && !doc.Item.resolvedCommit && artifactRevision) {
+  if (doc.Item && !hasUpdatedMainMessage && !doc.Item.resolvedCommit && artifactRevision) {
     await docClient.updateAsync({
       TableName: dynamodbTable,
       Key: {projectName, executionId: pipelineExecutionId},
@@ -315,7 +315,7 @@ exports.handler = async (event, context) => {
   if (!_.isEmpty(pendingMessages)) {
     // Handling pending messages, Iterate and treat them as going
     const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
-  
+
     const extractEventSummary = ev => {
       const eventPart = ev.split(':');
       return {
@@ -333,6 +333,13 @@ exports.handler = async (event, context) => {
         return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
 
       const _eventSummary = extractEventSummary(pendingEvents[0]);
+      // /SLACK DEBUGING
+      await web.chat.postMessage({
+        channel,
+        text: `unpile  ->  ${pendingEvents[0]}\n${JSON.stringify(_eventSummary)}`,
+        thread_ts: doc.Item.slackThreadTs
+      });
+      //* /
       const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
       if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
         await handleEvent(_eventSummary);
