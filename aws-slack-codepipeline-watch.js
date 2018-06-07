@@ -75,7 +75,6 @@ const shouldProceed = ({type, stage, action, state}, currentStage, currentAction
       }
     ];
   }
-  console.log('XXXXXXX', {type, stage, action, state});
   return [currentStage === null, {currentStage: null, currentActions: []}];
 };
 
@@ -165,38 +164,16 @@ exports.handler = async (event, context) => {
     event.detail.action
   ]).join(':');
 
-  // /SLACK DEBUGING
-  await web.chat.postMessage({
-    channel,
-    text: `debug  ->  ${pendingMessage}`,
-    thread_ts: doc.Item.slackThreadTs
-  });
-  //* /
   const [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
-  console.log(
-    `guard: ${guard} ${event.detail.state} ${event.detail.stage} ${
-      event.detail.action
-    } ${currentStage} ${currentActions} ${guard ? JSON.stringify(update) : ''}`
-  );
   if (!guard) {
-    console.log(
-      `CANT process, ${
-        event['detail-type']
-      } due to ${currentStage} ${currentActions}->>${pendingMessage}`
-    );
-    return docClient
-      .updateAsync({
-        TableName: dynamodbTable,
-        Key: {projectName, executionId: pipelineExecutionId},
-        UpdateExpression: `SET #pmf.#pm = :ts`,
-        ExpressionAttributeNames: {'#pmf': 'pendingMessages', '#pm': pendingMessage},
-        ExpressionAttributeValues: {':ts': event.time}
-      })
-      .catch(err => {
-        console.error(pipelineExecutionId, err.message, pendingMessage);
-      });
+    return docClient.updateAsync({
+      TableName: dynamodbTable,
+      Key: {projectName, executionId: pipelineExecutionId},
+      UpdateExpression: `SET #pmf.#pm = :ts`,
+      ExpressionAttributeNames: {'#pmf': 'pendingMessages', '#pm': pendingMessage},
+      ExpressionAttributeValues: {':ts': event.time}
+    });
   }
-  console.log({':ca': update.currentActions, ':sa': update.currentStage});
   await docClient.updateAsync({
     TableName: dynamodbTable,
     Key: {projectName, executionId: pipelineExecutionId},
@@ -226,7 +203,6 @@ exports.handler = async (event, context) => {
   };
 
   const handleEvent = async ({type, stage, action, state}) => {
-    console.log(`HANDLING EVENT ${type} ${stage} ${action}`);
     await web.chat.postMessage({
       as_user: true,
       channel,
@@ -333,13 +309,6 @@ exports.handler = async (event, context) => {
         return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
 
       const _eventSummary = extractEventSummary(pendingEvents[0]);
-      // /SLACK DEBUGING
-      await web.chat.postMessage({
-        channel,
-        text: `unpile  ->  ${pendingEvents[0]}\n${JSON.stringify(_eventSummary)}`,
-        thread_ts: doc.Item.slackThreadTs
-      });
-      //* /
       const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
       if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
         await handleEvent(_eventSummary);
