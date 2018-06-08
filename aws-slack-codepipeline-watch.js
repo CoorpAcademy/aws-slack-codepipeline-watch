@@ -85,17 +85,23 @@ const shouldProceed = ({type, stage, action, state, runOrder}, currentStage, cur
         }
       ];
     return [
-      _.includes(action, currentActions.actions),
+      _.includes(action, _.get('actions', currentActions)),
       {
         currentStage,
         currentActions:
-          currentActions.actions.length === 1
+          _.size(_.get('actions', currentActions)) === 1
             ? NO_ACTIONS()
             : {noStartedAction: false, runOrder, actions: _.filter(_action => _action !== action)}
       }
     ];
   }
-  return [currentStage === null, NO_ACTIONS()];
+  return [
+    currentStage === null,
+    {
+      currentStage,
+      currentActions: NO_ACTIONS()
+    }
+  ];
 };
 
 exports.handler = async (event, context) => {
@@ -346,14 +352,14 @@ exports.handler = async (event, context) => {
         channel,
         text: `unpile _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingEvents[0]}}\n\n${
           firstUpdates.currentStage
-        } ${firstUpdates.currentActions.actions}`,
+        } ${_.get('currentActions.actions', firstUpdates)}`,
         thread_ts: record.slackThreadTs
       });
       //* /
       const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
       // if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
       await handleEvent(_eventSummary);
-      if (pendingEvents.length === 1)
+      if (_.size(pendingEvents) === 1)
         return {
           pendingEvents,
           currentStage: firstUpdates.currentStage,
@@ -361,7 +367,7 @@ exports.handler = async (event, context) => {
           handledMessages: [...handledMessages, pendingEvents[0]]
         };
       return treatOneEventAtATime(
-        [..._.slice(1, pendingEvents.length, pendingEvents)],
+        [..._.slice(1, _.size(pendingEvents), pendingEvents)],
         firstUpdates.currentStage,
         firstUpdates.currentActions,
         [...handledMessages, pendingEvents[0]]
@@ -428,7 +434,7 @@ exports.handler = async (event, context) => {
       channel,
       text: `debug _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}, *${
         guard ? 'proceed' : 'initialy postponed'
-      }*\n\n${record.currentStage} ${record.currentActions.actions}`,
+      }*\n\n${record.currentStage} ${_.get('currentActions.actions', record)}`,
       thread_ts: record.slackThreadTs
     });
     let pendingResult;
@@ -491,10 +497,11 @@ exports.handler = async (event, context) => {
       Item: _.set('Lock', false, futureRecord)
     });
   } catch (err) {
+    console.error(err);
     await web.chat.postMessage({
       channel,
       text: `ERROR _(${context.awsRequestId.slice(0, 8)})_  ->  ${err.message}\n\n${JSON.stringify(
-        err,
+        event,
         0,
         2
       )}\n\n${JSON.stringify(_.set('Lock', false, futureRecord), 0, 2)}`,
