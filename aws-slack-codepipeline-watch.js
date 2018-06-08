@@ -51,27 +51,40 @@ const getStageDetails = (pipelineDetails, stageName) => {
   return _.find({name: stageName}, pipelineDetails.stages);
 };
 
-const shouldProceed = ({type, stage, action, state}, currentStage, currentActions) => {
+const getActionDetails = (stageDetails, actionName) => {
+  return _.find({name: actionName}, stageDetails.actions);
+};
+
+const shouldProceed = ({type, stage, action, state, runOrder}, currentStage, currentActions) => {
+  const NO_ACTIONS = {runOrder: undefined, actions: []};
   if (type === 'stage') {
     if (state === 'STARTED' || state === 'RESUMED')
-      return [currentStage === null, {currentStage: stage, currentActions: []}];
+      return [currentStage === null, {currentStage: stage, currentActions: NO_ACTIONS}];
     return [
-      _.isEmpty(currentActions) && stage === currentStage,
-      {currentStage: null, currentActions: []}
+      _.isEmpty(currentActions.actions) && stage === currentStage,
+      {currentStage: null, currentActions: NO_ACTIONS}
     ];
   }
 
   if (type === 'action') {
     if (state === 'STARTED' || state === 'RESUMED')
       return [
-        _.isEmpty(currentActions) && currentStage === stage, // §FIXME Multi Stage
-        {currentStage, currentActions: [...(currentActions || []), action]}
+        currentStage === stage &&
+          (currentActions.runOrder === undefined || currentActions.runOrder === runOrder),
+        // §TODO Improve parallel action with checking the run order
+        {
+          currentStage,
+          currentActions: {actions: [...(currentActions.actions || []), action], runOrder}
+        }
       ];
     return [
-      _.includes(action, currentActions),
+      _.includes(action, currentActions.actions),
       {
         currentStage,
-        currentActions: _.filter(_action => _action !== action, currentActions)
+        currentActions:
+          currentActions.actions.length === 1
+            ? NO_ACTIONS
+            : {runOrder, actions: _.filter(_action => _action !== action)}
       }
     ];
   }
@@ -151,23 +164,27 @@ exports.handler = async (event, context) => {
   const commitUrl = artifactRevision && artifactRevision.revisionUrl;
   const commitDetailsMessage = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}`;
   const eventCurrentStage = getStageDetails(codepipelineDetails, event.detail.stage);
-
+  const nbActionsOfStage = _.maxBy(_action => _action.runOrder, eventCurrentStage.actions).runOrder;
+  const eventCurrentOrder =
+    EVENT_TYPES[event['detail-type']] === 'action'
+      ? getActionDetails(eventCurrentStage, event.detail.action).runOrder
+      : undefined;
   const eventSummary = {
     type: EVENT_TYPES[event['detail-type']],
     stage: event.detail.stage,
     action: event.detail.action,
-    state: event.detail.state
+    state: event.detail.state,
+    runOrder: eventCurrentOrder
   };
   const pendingMessage = _.compact([
     EVENT_TYPES[event['detail-type']],
     event.detail.state,
     event.detail.stage,
-    event.detail.action
+    event.detail.action,
+    eventCurrentOrder
   ]).join(':');
 
-  const attachmentForEvent = ({type, stage, action, state}) => {
-    const stageDetails = getStageDetails(codepipelineDetails, stage);
-    const nbAction = _.size(_.get('actions', stageDetails));
+  const attachmentForEvent = ({type, stage, action, state, runOrder}) => {
     let title, text, color;
     if (type === 'pipeline') {
       text = `Deployment just *${state.toLowerCase()}* <${link}|🔗>`;
@@ -177,19 +194,17 @@ exports.handler = async (event, context) => {
       text = `Stage *${stage}* just *${state.toLowerCase()}*`;
       color = COLOR_CODES.pale[state];
     } else if (type === 'action') {
-      const actionIndexInStage = _.findIndex({name: action}, stageDetails.actions);
-      text = `> Action *${action}* _(stage *${stage}* *[${1 +
-        actionIndexInStage}/${nbAction}]*)_ just *${state.toLowerCase()}*`;
+      text = `> Action *${action}* _(stage *${stage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
       color = COLOR_CODES.palest[state];
     }
     return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
   };
 
-  const handleEvent = async ({type, stage, action, state}) => {
+  const handleEvent = async ({type, stage, action, state, runOrder}) => {
     await web.chat.postMessage({
       as_user: true,
       channel,
-      attachments: attachmentForEvent({type, stage, action, state}),
+      attachments: attachmentForEvent({type, stage, action, state, runOrder}),
       thread_ts: doc.Item.slackThreadTs
     });
     // Update pipeline on treated messages
@@ -270,7 +285,8 @@ exports.handler = async (event, context) => {
           type: eventPart[0],
           state: eventPart[1],
           stage: eventPart[2],
-          action: eventPart[3]
+          action: eventPart[3],
+          runOrder: eventPart[4]
         };
       };
       const treatOneEventAtATime = async (pendingEvents, cStage, cActions, handledMessages) => {
@@ -414,7 +430,8 @@ exports.handler = async (event, context) => {
         type,
         stage,
         action,
-        state
+        state,
+        runOrder: eventCurrentOrder
       });
     }
 
