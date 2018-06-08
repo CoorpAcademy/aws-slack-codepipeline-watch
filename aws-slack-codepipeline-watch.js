@@ -177,6 +177,7 @@ exports.handler = async (event, context) => {
     TableName: dynamodbTable,
     Key: {projectName, executionId: pipelineExecutionId}
   });
+  let futureRecord = _.cloneDeep(record);
   const {currentStage, currentActions, codepipelineDetails} = record;
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
@@ -212,10 +213,16 @@ exports.handler = async (event, context) => {
       title = `${projectName} (${env})`;
       color = COLOR_CODES[state];
     } else if (type === 'stage') {
-      text = `Stage *${stage}* just *${state.toLowerCase()}*`;
+      text = `Stage *${stage}* just *${state.toLowerCase()}* _(${context.awsRequestId.slice(
+        0,
+        8
+      )})_`;
       color = COLOR_CODES.pale[state];
     } else if (type === 'action') {
-      text = `> Action *${action}* _(stage *${stage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
+      text = `> Action *${action}* _(stage *${stage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}* _(${context.awsRequestId.slice(
+        0,
+        8
+      )})_`;
       color = COLOR_CODES.palest[state];
     }
     return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
@@ -261,13 +268,7 @@ exports.handler = async (event, context) => {
   };
 
   const updateMainMessage = async () => {
-    await docClient.updateAsync({
-      TableName: dynamodbTable,
-      Key: {projectName, executionId: pipelineExecutionId},
-      UpdateExpression: 'set #resolvedCommit = :resolvedCommit',
-      ExpressionAttributeNames: {'#resolvedCommit': 'resolvedCommit'},
-      ExpressionAttributeValues: {':resolvedCommit': true}
-    });
+    futureRecord = _.set('resolvedCommit', true, futureRecord);
 
     await web.chat.update({
       as_user: true,
@@ -341,13 +342,15 @@ exports.handler = async (event, context) => {
       // /SLACK DEBUGING
       await web.chat.postMessage({
         channel,
-        text: `unpile _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingEvents[0]}}`,
+        text: `unpile _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingEvents[0]}}\n\n${
+          firstUpdates.currentStage
+        } ${firstUpdates.currentActions.actions}`,
         thread_ts: record.slackThreadTs
       });
       //* /
       const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
-      if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
-        await handleEvent(_eventSummary);
+      // if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
+      await handleEvent(_eventSummary);
       if (pendingEvents.length === 1)
         return {
           pendingEvents,
@@ -369,40 +372,24 @@ exports.handler = async (event, context) => {
       []
     );
     if (!_.isEmpty(newPending.handledMessages)) {
-      const disableMessages = Promise.map(newPending.handledMessages, handledMessage =>
-        docClient.updateAsync({
-          TableName: dynamodbTable,
-          Key: {projectName, executionId: pipelineExecutionId},
-          UpdateExpression: 'remove #pm.#pmf',
-          ExpressionAttributeNames: {
-            '#pm': 'pendingMessages',
-            '#pmf': handledMessage
-          }
-        })
+      // §FIXME do only a write item!!
+      futureRecord = _.reduce(
+        (acc, handledMessage) => _.unset(`pendingMessages.${handledMessage}`),
+        newPending.handledMessages
       );
-      await Promise.all([
-        disableMessages,
-        web.chat.postMessage({
-          channel,
-          text: `updateStage _(${context.awsRequestId.slice(0, 8)})_ ->  ${
-            newPending.currentStage
-          }, ${JSON.stringify(newPending.currentActions)}`,
-          thread_ts: record.slackThreadTs
-        }),
-        docClient.updateAsync({
-          TableName: dynamodbTable,
-          Key: {projectName, executionId: pipelineExecutionId},
-          UpdateExpression: 'set #cs = :cs, #ca = :ca',
-          ExpressionAttributeNames: {
-            '#ca': 'currentActions',
-            '#cs': 'currentStage'
-          },
-          ExpressionAttributeValues: {
-            ':cs': newPending.currentStage,
-            ':ca': newPending.currentActions
-          }
-        })
-      ]);
+
+      await web.chat.postMessage({
+        channel,
+        text: `updateStage _(${context.awsRequestId.slice(0, 8)})_ ->  ${
+          newPending.currentStage
+        }, ${JSON.stringify(newPending.currentActions)}`,
+        thread_ts: record.slackThreadTs
+      });
+      futureRecord = _.set(
+        'currentActions',
+        newPending.currentActions,
+        _.set('currentStage', newPending.currentStage, futureRecord)
+      );
     }
     return newPending;
   };
@@ -419,7 +406,7 @@ exports.handler = async (event, context) => {
     channel,
     text: `debug _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}, *${
       guard ? 'proceed' : 'initialy postponed'
-    }*`,
+    }*\n\n${record.currentStage} ${record.currentActions.actions}`,
     thread_ts: record.slackThreadTs
   });
   let pendingResult;
@@ -433,13 +420,8 @@ exports.handler = async (event, context) => {
       pendingResult.currentActions
     );
     if (!retryGuard) {
-      await docClient.updateAsync({
-        TableName: dynamodbTable,
-        Key: {projectName, executionId: pipelineExecutionId},
-        UpdateExpression: `SET #pmf.#pm = :ts`,
-        ExpressionAttributeNames: {'#pmf': 'pendingMessages', '#pm': pendingMessage},
-        ExpressionAttributeValues: {':ts': event.time}
-      });
+      futureRecord = _.set(`pendingMessages.${pendingMessage}`, event.time, futureRecord);
+      update = {currentActions: record.currentActions, currentStage: record.currentStage};
     } else {
       await web.chat.postMessage({
         channel,
@@ -449,17 +431,16 @@ exports.handler = async (event, context) => {
       update = retryUpdate;
     }
   }
-  // Treat current message
-  await docClient.updateAsync({
-    TableName: dynamodbTable,
-    Key: {projectName, executionId: pipelineExecutionId},
-    UpdateExpression: 'SET #actions = :ca, #stage = :sa ',
-    ExpressionAttributeNames: {'#actions': 'currentActions', '#stage': 'currentStage'},
-    ExpressionAttributeValues: {':ca': update.currentActions, ':sa': update.currentStage}
-  });
+  futureRecord = _.set(
+    // §TODO:check
+    'currentActions',
+    update.currentActions,
+    _.set('currentStage', update.currentStage, futureRecord)
+  );
 
   let hasUpdatedMainMessage;
-  if (!(type === 'action' && _.size(_.get('actions', eventCurrentStage)) <= 1)) {
+  // if (guard && !(type === 'action' && _.size(_.get('actions', eventCurrentStage)) <= 1)) {
+  if (guard)
     hasUpdatedMainMessage = await handleEvent({
       type,
       stage,
@@ -467,20 +448,23 @@ exports.handler = async (event, context) => {
       state,
       runOrder: eventCurrentOrder
     });
-  }
+  // }
 
   if (record && !hasUpdatedMainMessage && !record.resolvedCommit && artifactRevision) {
     await updateMainMessage();
   }
-  await handlePendingMessages(pendingResult || record);
-
-  // Lock Release
-  await docClient.updateAsync({
+  await handlePendingMessages(
+    _.set(
+      'currentActions',
+      update.currentActions,
+      _.set('currentStage', update.currentStage, pendingResult || record)
+    )
+  );
+  console.log(_.set('Lock', false, futureRecord));
+  // Update Lock Release
+  await docClient.putAsync({
     TableName: dynamodbTable,
-    Key: {projectName, executionId: pipelineExecutionId},
-    UpdateExpression: 'SET #lock = :lock',
-    ExpressionAttributeNames: {'#lock': 'Lock'},
-    ExpressionAttributeValues: {':lock': false}
+    Item: _.set('Lock', false, futureRecord)
   });
   return 'Acknoledge Event';
 };
