@@ -288,175 +288,192 @@ exports.handler = async (event, context) => {
     currentStage: _currentStage,
     currentActions: _currentActions
   }) => {
-    if (!_.isEmpty(pendingMessages)) {
-      // Handling pending messages, Iterate and treat them as going
-      const orderedEvents = _.map(
-        ([k, v]) => k,
-        _.sortBy(([k, v]) => v, _.toPairs(pendingMessages))
-      );
-
-      const extractEventSummary = ev => {
-        const eventPart = ev.split(':');
-        return {
-          type: eventPart[0],
-          state: eventPart[1],
-          stage: eventPart[2],
-          action: eventPart[3],
-          runOrder: eventPart[4]
-        };
+    if (_.isEmpty(pendingMessages)) {
+      return {
+        pendingMessages,
+        currentStage: _currentStage,
+        currentActions: _currentActions
       };
-      const treatOneEventAtATime = async (pendingEvents, cStage, cActions, handledMessages) => {
-        const guardList = _.map(ev => {
-          return shouldProceed(extractEventSummary(ev), cStage, cActions);
-        }, pendingEvents);
-        let [firstGuard, firstUpdates] = guardList[0];
-        if (!firstGuard) {
-          // handling simultaneus messages
-          const simultaneusMessages = _.filter(
-            ([k, v]) => v === pendingMessages[pendingEvents[0]],
-            _.toPairs(pendingMessages)
-          );
-          if (_.size(simultaneusMessages) > 1)
-            await web.chat.postMessage({
-              channel,
-              text: `*${_.size(simultaneusMessages)} SIMULATENUS MESSAGE*  ->  ${JSON.stringify(
-                simultaneusMessages
-              )}`,
-              thread_ts: record.slackThreadTs
-            });
-          const simultaneousGuardList = _.map(([ev, ts]) => {
-            return shouldProceed(extractEventSummary(ev), cStage, cActions);
-          }, simultaneusMessages);
-          const simultaneousGuard = _.find(([_guard, _update]) => _guard, simultaneousGuardList);
-
-          if (!simultaneousGuard)
-            return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
-          else [firstGuard, firstUpdates] = simultaneousGuard;
-        }
-        const _eventSummary = extractEventSummary(pendingEvents[0]);
-        // /SLACK DEBUGING
-        await web.chat.postMessage({
-          channel,
-          text: `unpile _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingEvents[0]}}`,
-          thread_ts: record.slackThreadTs
-        });
-        //* /
-        const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
-        if (
-          !(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1)
-        )
-          await handleEvent(_eventSummary);
-        if (pendingEvents.length === 1)
-          return {
-            pendingEvents,
-            currentStage: firstUpdates.currentStage,
-            currentActions: firstUpdates.currentActions,
-            handledMessages: [...handledMessages, pendingEvents[0]]
-          };
-        return treatOneEventAtATime(
-          [..._.slice(1, pendingEvents.length, pendingEvents)],
-          firstUpdates.currentStage,
-          firstUpdates.currentActions,
-          [...handledMessages, pendingEvents[0]]
-        );
-      };
-      const newPending = await treatOneEventAtATime(
-        orderedEvents,
-        _currentStage,
-        _currentActions,
-        []
-      );
-      if (!_.isEmpty(newPending.handledMessages)) {
-        const disableMessages = Promise.map(newPending.handledMessages, handledMessage =>
-          docClient.updateAsync({
-            TableName: dynamodbTable,
-            Key: {projectName, executionId: pipelineExecutionId},
-            UpdateExpression: 'remove #pm.#pmf',
-            ExpressionAttributeNames: {
-              '#pm': 'pendingMessages',
-              '#pmf': handledMessage
-            }
-          })
-        );
-        await Promise.all([
-          disableMessages,
-          web.chat.postMessage({
-            channel,
-            text: `updateStage _(${context.awsRequestId.slice(0, 8)})_ ->  ${
-              newPending.currentStage
-            }, ${JSON.stringify(newPending.currentActions)}`,
-            thread_ts: record.slackThreadTs
-          }),
-          docClient.updateAsync({
-            TableName: dynamodbTable,
-            Key: {projectName, executionId: pipelineExecutionId},
-            UpdateExpression: 'set #cs = :cs, #ca = :ca',
-            ExpressionAttributeNames: {
-              '#ca': 'currentActions',
-              '#cs': 'currentStage'
-            },
-            ExpressionAttributeValues: {
-              ':cs': newPending.currentStage,
-              ':ca': newPending.currentActions
-            }
-          })
-        ]);
-      }
     }
+    // Handling pending messages, Iterate and treat them as going
+    const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
+
+    const extractEventSummary = ev => {
+      const eventPart = ev.split(':');
+      return {
+        type: eventPart[0],
+        state: eventPart[1],
+        stage: eventPart[2],
+        action: eventPart[3],
+        runOrder: eventPart[4]
+      };
+    };
+    const treatOneEventAtATime = async (pendingEvents, cStage, cActions, handledMessages) => {
+      const guardList = _.map(
+        ev => shouldProceed(extractEventSummary(ev), cStage, cActions),
+        pendingEvents
+      );
+      let [firstGuard, firstUpdates] = guardList[0];
+      if (!firstGuard) {
+        // handling simultaneus messages
+        const simultaneusMessages = _.filter(
+          ([k, v]) => v === pendingMessages[pendingEvents[0]],
+          _.toPairs(pendingMessages)
+        );
+        if (_.size(simultaneusMessages) > 1)
+          await web.chat.postMessage({
+            channel,
+            text: `*${_.size(simultaneusMessages)} SIMULATENUS MESSAGE*  ->  ${JSON.stringify(
+              simultaneusMessages
+            )}`,
+            thread_ts: record.slackThreadTs
+          });
+        const simultaneousGuardList = _.map(([ev, ts]) => {
+          return shouldProceed(extractEventSummary(ev), cStage, cActions);
+        }, simultaneusMessages);
+        const simultaneousGuard = _.find(([_guard, _update]) => _guard, simultaneousGuardList);
+
+        if (!simultaneousGuard)
+          return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
+        else [firstGuard, firstUpdates] = simultaneousGuard;
+      }
+      const _eventSummary = extractEventSummary(pendingEvents[0]);
+      // /SLACK DEBUGING
+      await web.chat.postMessage({
+        channel,
+        text: `unpile _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingEvents[0]}}`,
+        thread_ts: record.slackThreadTs
+      });
+      //* /
+      const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
+      if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
+        await handleEvent(_eventSummary);
+      if (pendingEvents.length === 1)
+        return {
+          pendingEvents,
+          currentStage: firstUpdates.currentStage,
+          currentActions: firstUpdates.currentActions,
+          handledMessages: [...handledMessages, pendingEvents[0]]
+        };
+      return treatOneEventAtATime(
+        [..._.slice(1, pendingEvents.length, pendingEvents)],
+        firstUpdates.currentStage,
+        firstUpdates.currentActions,
+        [...handledMessages, pendingEvents[0]]
+      );
+    };
+    const newPending = await treatOneEventAtATime(
+      orderedEvents,
+      _currentStage,
+      _currentActions,
+      []
+    );
+    if (!_.isEmpty(newPending.handledMessages)) {
+      const disableMessages = Promise.map(newPending.handledMessages, handledMessage =>
+        docClient.updateAsync({
+          TableName: dynamodbTable,
+          Key: {projectName, executionId: pipelineExecutionId},
+          UpdateExpression: 'remove #pm.#pmf',
+          ExpressionAttributeNames: {
+            '#pm': 'pendingMessages',
+            '#pmf': handledMessage
+          }
+        })
+      );
+      await Promise.all([
+        disableMessages,
+        web.chat.postMessage({
+          channel,
+          text: `updateStage _(${context.awsRequestId.slice(0, 8)})_ ->  ${
+            newPending.currentStage
+          }, ${JSON.stringify(newPending.currentActions)}`,
+          thread_ts: record.slackThreadTs
+        }),
+        docClient.updateAsync({
+          TableName: dynamodbTable,
+          Key: {projectName, executionId: pipelineExecutionId},
+          UpdateExpression: 'set #cs = :cs, #ca = :ca',
+          ExpressionAttributeNames: {
+            '#ca': 'currentActions',
+            '#cs': 'currentStage'
+          },
+          ExpressionAttributeValues: {
+            ':cs': newPending.currentStage,
+            ':ca': newPending.currentActions
+          }
+        })
+      ]);
+    }
+    return newPending;
   };
 
-  const [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
+  const type = EVENT_TYPES[event['detail-type']];
+  const stage = event.detail.stage;
+  const action = event.detail.action;
+  const state = event.detail.state;
+  // eslint-disable-next-line prefer-const
+  let [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
 
   // /SLACK DEBUGING
   await web.chat.postMessage({
     channel,
     text: `debug _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}, *${
-      guard ? 'proceed' : 'postponed'
+      guard ? 'proceed' : 'initialy postponed'
     }*`,
     thread_ts: record.slackThreadTs
   });
+  let pendingResult;
   //* /
   if (!guard) {
-    // Postpone current message
-    await docClient.updateAsync({
-      TableName: dynamodbTable,
-      Key: {projectName, executionId: pipelineExecutionId},
-      UpdateExpression: `SET #pmf.#pm = :ts`,
-      ExpressionAttributeNames: {'#pmf': 'pendingMessages', '#pm': pendingMessage},
-      ExpressionAttributeValues: {':ts': event.time}
-    });
-    await Promise.delay(5000); // to handle pending messages even if postpone
-  } else {
-    // Treat current message
-    await docClient.updateAsync({
-      TableName: dynamodbTable,
-      Key: {projectName, executionId: pipelineExecutionId},
-      UpdateExpression: 'SET #actions = :ca, #stage = :sa ',
-      ExpressionAttributeNames: {'#actions': 'currentActions', '#stage': 'currentStage'},
-      ExpressionAttributeValues: {':ca': update.currentActions, ':sa': update.currentStage}
-    });
-
-    let hasUpdatedMainMessage;
-    const type = EVENT_TYPES[event['detail-type']];
-    const stage = event.detail.stage;
-    const action = event.detail.action;
-    const state = event.detail.state;
-    if (!(type === 'action' && _.size(_.get('actions', eventCurrentStage)) <= 1)) {
-      hasUpdatedMainMessage = await handleEvent({
-        type,
-        stage,
-        action,
-        state,
-        runOrder: eventCurrentOrder
+    // Postpone current message if cannot handle it after pending messages
+    pendingResult = await handlePendingMessages(record);
+    const [retryGuard, retryUpdate] = shouldProceed(
+      eventSummary,
+      pendingResult.currentStage,
+      pendingResult.currentActions
+    );
+    if (!retryGuard) {
+      await docClient.updateAsync({
+        TableName: dynamodbTable,
+        Key: {projectName, executionId: pipelineExecutionId},
+        UpdateExpression: `SET #pmf.#pm = :ts`,
+        ExpressionAttributeNames: {'#pmf': 'pendingMessages', '#pm': pendingMessage},
+        ExpressionAttributeValues: {':ts': event.time}
       });
-    }
-
-    if (record && !hasUpdatedMainMessage && !record.resolvedCommit && artifactRevision) {
-      await updateMainMessage();
+    } else {
+      await web.chat.postMessage({
+        channel,
+        text: `RETRY after pending _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}`,
+        thread_ts: record.slackThreadTs
+      });
+      update = retryUpdate;
     }
   }
+  // Treat current message
+  await docClient.updateAsync({
+    TableName: dynamodbTable,
+    Key: {projectName, executionId: pipelineExecutionId},
+    UpdateExpression: 'SET #actions = :ca, #stage = :sa ',
+    ExpressionAttributeNames: {'#actions': 'currentActions', '#stage': 'currentStage'},
+    ExpressionAttributeValues: {':ca': update.currentActions, ':sa': update.currentStage}
+  });
 
-  await handlePendingMessages(record);
+  let hasUpdatedMainMessage;
+  if (!(type === 'action' && _.size(_.get('actions', eventCurrentStage)) <= 1)) {
+    hasUpdatedMainMessage = await handleEvent({
+      type,
+      stage,
+      action,
+      state,
+      runOrder: eventCurrentOrder
+    });
+  }
+
+  if (record && !hasUpdatedMainMessage && !record.resolvedCommit && artifactRevision) {
+    await updateMainMessage();
+  }
+  await handlePendingMessages(pendingResult || record);
+
   // Lock Release
   await docClient.updateAsync({
     TableName: dynamodbTable,
