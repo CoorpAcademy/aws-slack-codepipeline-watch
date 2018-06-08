@@ -185,8 +185,10 @@ exports.handler = async (event, context) => {
   const commitMessage = artifactRevision && artifactRevision.revisionSummary;
   const commitUrl = artifactRevision && artifactRevision.revisionUrl;
   const commitDetailsMessage = `commit \`<${commitUrl}|${shortCommitId}>\`\n> ${commitMessage}`;
-  const eventCurrentStage = getStageDetails(codepipelineDetails, event.detail.stage);
-  const nbActionsOfStage = _.maxBy(_action => _action.runOrder, eventCurrentStage.actions).runOrder;
+  const eventCurrentStage =
+    event.detail.stage && getStageDetails(codepipelineDetails, event.detail.stage);
+  const nbActionsOfStage =
+    event.detail.stage && _.maxBy(_action => _action.runOrder, eventCurrentStage.actions).runOrder;
   const eventCurrentOrder =
     EVENT_TYPES[event['detail-type']] === 'action'
       ? getActionDetails(eventCurrentStage, event.detail.action).runOrder
@@ -373,11 +375,25 @@ exports.handler = async (event, context) => {
     );
     if (!_.isEmpty(newPending.handledMessages)) {
       // §FIXME do only a write item!!
+      /*
+      await web.chat.postMessage({
+        channel,
+        text: `*BEFORE* _(${context.awsRequestId.slice(0, 8)})_  ->  \n\n${JSON.stringify(_.set('Lock', false, futureRecord),0,2)}`,
+        thread_ts: record.slackThreadTs
+      });
+      */
       futureRecord = _.reduce(
-        (acc, handledMessage) => _.unset(`pendingMessages.${handledMessage}`),
+        (acc, handledMessage) => _.unset(`pendingMessages.${handledMessage}`, acc),
+        futureRecord,
         newPending.handledMessages
       );
-
+      /*
+      await web.chat.postMessage({
+        channel,
+        text: `*BETWEEN* _(${context.awsRequestId.slice(0, 8)})_  ->  \n\n${JSON.stringify(_.set('Lock', false, futureRecord),0,2)}`,
+        thread_ts: record.slackThreadTs
+      });
+      */
       await web.chat.postMessage({
         channel,
         text: `updateStage _(${context.awsRequestId.slice(0, 8)})_ ->  ${
@@ -389,82 +405,101 @@ exports.handler = async (event, context) => {
         'currentActions',
         newPending.currentActions,
         _.set('currentStage', newPending.currentStage, futureRecord)
-      );
+      ); /*
+      await web.chat.postMessage({
+        channel,
+        text: `*AFTER* _(${context.awsRequestId.slice(0, 8)})_  ->  \n\n${JSON.stringify(_.set('Lock', false, futureRecord),0,2)}`,
+        thread_ts: record.slackThreadTs
+      });*/
     }
     return newPending;
   };
 
-  const type = EVENT_TYPES[event['detail-type']];
-  const stage = event.detail.stage;
-  const action = event.detail.action;
-  const state = event.detail.state;
-  // eslint-disable-next-line prefer-const
-  let [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
+  try {
+    const type = EVENT_TYPES[event['detail-type']];
+    const stage = event.detail.stage;
+    const action = event.detail.action;
+    const state = event.detail.state;
+    // eslint-disable-next-line prefer-const
+    let [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
 
-  // /SLACK DEBUGING
-  await web.chat.postMessage({
-    channel,
-    text: `debug _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}, *${
-      guard ? 'proceed' : 'initialy postponed'
-    }*\n\n${record.currentStage} ${record.currentActions.actions}`,
-    thread_ts: record.slackThreadTs
-  });
-  let pendingResult;
-  //* /
-  if (!guard) {
-    // Postpone current message if cannot handle it after pending messages
-    pendingResult = await handlePendingMessages(record);
-    const [retryGuard, retryUpdate] = shouldProceed(
-      eventSummary,
-      pendingResult.currentStage,
-      pendingResult.currentActions
-    );
-    if (!retryGuard) {
-      futureRecord = _.set(`pendingMessages.${pendingMessage}`, event.time, futureRecord);
-      update = {currentActions: record.currentActions, currentStage: record.currentStage};
-    } else {
-      await web.chat.postMessage({
-        channel,
-        text: `RETRY after pending _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}`,
-        thread_ts: record.slackThreadTs
-      });
-      update = retryUpdate;
-    }
-  }
-  futureRecord = _.set(
-    // §TODO:check
-    'currentActions',
-    update.currentActions,
-    _.set('currentStage', update.currentStage, futureRecord)
-  );
-
-  let hasUpdatedMainMessage;
-  // if (guard && !(type === 'action' && _.size(_.get('actions', eventCurrentStage)) <= 1)) {
-  if (guard)
-    hasUpdatedMainMessage = await handleEvent({
-      type,
-      stage,
-      action,
-      state,
-      runOrder: eventCurrentOrder
+    // /SLACK DEBUGING
+    await web.chat.postMessage({
+      channel,
+      text: `debug _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}, *${
+        guard ? 'proceed' : 'initialy postponed'
+      }*\n\n${record.currentStage} ${record.currentActions.actions}`,
+      thread_ts: record.slackThreadTs
     });
-  // }
-
-  if (record && !hasUpdatedMainMessage && !record.resolvedCommit && artifactRevision) {
-    await updateMainMessage();
-  }
-  await handlePendingMessages(
-    _.set(
+    let pendingResult;
+    //* /
+    if (!guard) {
+      // Postpone current message if cannot handle it after pending messages
+      pendingResult = await handlePendingMessages(record);
+      const [retryGuard, retryUpdate] = shouldProceed(
+        eventSummary,
+        pendingResult.currentStage,
+        pendingResult.currentActions
+      );
+      if (!retryGuard) {
+        futureRecord = _.set(`pendingMessages.${pendingMessage}`, event.time, futureRecord);
+        update = {currentActions: record.currentActions, currentStage: record.currentStage};
+      } else {
+        await web.chat.postMessage({
+          channel,
+          text: `RETRY after pending _(${context.awsRequestId.slice(
+            0,
+            8
+          )})_  ->  ${pendingMessage}`,
+          thread_ts: record.slackThreadTs
+        });
+        update = retryUpdate;
+      }
+    }
+    futureRecord = _.set(
+      // §TODO:check
       'currentActions',
       update.currentActions,
-      _.set('currentStage', update.currentStage, pendingResult || record)
-    )
-  );
-  console.log(_.set('Lock', false, futureRecord));
-  // Update Lock Release
-  await docClient.putAsync({
-    TableName: dynamodbTable,
-    Item: _.set('Lock', false, futureRecord)
-  });
+      _.set('currentStage', update.currentStage, futureRecord)
+    );
+
+    let hasUpdatedMainMessage;
+    // if (guard && !(type === 'action' && _.size(_.get('actions', eventCurrentStage)) <= 1)) {
+    if (guard)
+      hasUpdatedMainMessage = await handleEvent({
+        type,
+        stage,
+        action,
+        state,
+        runOrder: eventCurrentOrder
+      });
+    // }
+    if (record && !hasUpdatedMainMessage && !record.resolvedCommit && artifactRevision) {
+      await updateMainMessage();
+    }
+    await handlePendingMessages(
+      _.set(
+        'currentActions',
+        update.currentActions,
+        _.set('currentStage', update.currentStage, record) // §FIXME
+      )
+    );
+    console.log(_.set('Lock', false, futureRecord));
+    // Update Lock Release
+    await docClient.putAsync({
+      TableName: dynamodbTable,
+      Item: _.set('Lock', false, futureRecord)
+    });
+  } catch (err) {
+    await web.chat.postMessage({
+      channel,
+      text: `ERROR _(${context.awsRequestId.slice(0, 8)})_  ->  ${err.message}\n\n${JSON.stringify(
+        err,
+        0,
+        2
+      )}\n\n${JSON.stringify(_.set('Lock', false, futureRecord), 0, 2)}`,
+      thread_ts: record.slackThreadTs
+    });
+  }
   return 'Acknoledge Event';
 };
