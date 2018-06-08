@@ -305,7 +305,8 @@ exports.handler = async (event, context) => {
       const guardList = _.map(ev => {
         return shouldProceed(extractEventSummary(ev), cStage, cActions);
       }, pendingEvents);
-      if (!guardList[0][0])
+      const [firstGuard, firstUpdates] = guardList[0];
+      if (!firstGuard)
         return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
 
       const _eventSummary = extractEventSummary(pendingEvents[0]);
@@ -315,14 +316,14 @@ exports.handler = async (event, context) => {
       if (pendingEvents.length === 1)
         return {
           pendingEvents,
-          currentStage: guardList[0][1].currentStage,
-          currentActions: guardList[0][1].currentActions,
+          currentStage: firstUpdates.currentStage,
+          currentActions: firstUpdates.currentActions,
           handledMessages: [...handledMessages, pendingEvents[0]]
         };
       return treatOneEventAtATime(
         [..._.slice(1, pendingEvents.length, pendingEvents)],
-        update.currentStage,
-        update.currentActions,
+        firstUpdates.currentStage,
+        firstUpdates.currentActions,
         [...handledMessages, pendingEvents[0]]
       );
     };
