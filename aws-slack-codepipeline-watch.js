@@ -64,7 +64,7 @@ const shouldProceed = ({type, stage, action, state}, currentStage, currentAction
   if (type === 'action') {
     if (state === 'STARTED' || state === 'RESUMED')
       return [
-        _.isEmpty(currentActions) && currentStage === stage,
+        _.isEmpty(currentActions) && currentStage === stage, // §FIXME Multi Stage
         {currentStage, currentActions: [...(currentActions || []), action]}
       ];
     return [
@@ -287,7 +287,9 @@ exports.handler = async (event, context) => {
           if (_.size(simultaneusMessages) > 1)
             await web.chat.postMessage({
               channel,
-              text: `*SIMULATENUS MESSAGE*  ->  ${JSON.stringify(simultaneusMessages)}`,
+              text: `*${_.size(simultaneusMessages)} SIMULATENUS MESSAGE*  ->  ${JSON.stringify(
+                simultaneusMessages
+              )}`,
               thread_ts: doc.Item.slackThreadTs
             });
           const simultaneousGuardList = _.map(([ev, ts]) => {
@@ -303,7 +305,7 @@ exports.handler = async (event, context) => {
         // /SLACK DEBUGING
         await web.chat.postMessage({
           channel,
-          text: `unpile  ->  ${pendingEvents[0]}\n${JSON.stringify(_eventSummary)}`,
+          text: `unpile _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingEvents[0]}}`,
           thread_ts: doc.Item.slackThreadTs
         });
         //* /
@@ -376,47 +378,50 @@ exports.handler = async (event, context) => {
   // /SLACK DEBUGING
   await web.chat.postMessage({
     channel,
-    text: `debug  ->  ${pendingMessage}, *${guard ? 'proceed' : 'postponed'}*`,
+    text: `debug _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}, *${
+      guard ? 'proceed' : 'postponed'
+    }*`,
     thread_ts: doc.Item.slackThreadTs
   });
   //* /
   if (!guard) {
-    return docClient.updateAsync({
+    // Postpone current message
+    await docClient.updateAsync({
       TableName: dynamodbTable,
       Key: {projectName, executionId: pipelineExecutionId},
       UpdateExpression: `SET #pmf.#pm = :ts`,
       ExpressionAttributeNames: {'#pmf': 'pendingMessages', '#pm': pendingMessage},
       ExpressionAttributeValues: {':ts': event.time}
     });
-  }
-  await docClient.updateAsync({
-    TableName: dynamodbTable,
-    Key: {projectName, executionId: pipelineExecutionId},
-    UpdateExpression: 'SET #actions = :ca, #stage = :sa ',
-    ExpressionAttributeNames: {'#actions': 'currentActions', '#stage': 'currentStage'},
-    ExpressionAttributeValues: {':ca': update.currentActions, ':sa': update.currentStage}
-  });
-
-  let hasUpdatedMainMessage;
-  if (
-    !(
-      EVENT_TYPES[event['detail-type']] === 'action' &&
-      _.size(_.get('actions', eventCurrentStage)) <= 1
-    )
-  ) {
-    hasUpdatedMainMessage = await handleEvent({
-      type: EVENT_TYPES[event['detail-type']],
-      stage: event.detail.stage,
-      action: event.detail.action,
-      state: event.detail.state
+    await Promise.delay(5000); // to handle pending messages even if postpone
+  } else {
+    // Treat current message
+    await docClient.updateAsync({
+      TableName: dynamodbTable,
+      Key: {projectName, executionId: pipelineExecutionId},
+      UpdateExpression: 'SET #actions = :ca, #stage = :sa ',
+      ExpressionAttributeNames: {'#actions': 'currentActions', '#stage': 'currentStage'},
+      ExpressionAttributeValues: {':ca': update.currentActions, ':sa': update.currentStage}
     });
-  }
 
-  if (doc.Item && !hasUpdatedMainMessage && !doc.Item.resolvedCommit && artifactRevision) {
-    await updateMainMessage();
-  }
+    let hasUpdatedMainMessage;
+    const type = EVENT_TYPES[event['detail-type']];
+    const stage = event.detail.stage;
+    const action = event.detail.action;
+    const state = event.detail.state;
+    if (!(type === 'action' && _.size(_.get('actions', eventCurrentStage)) <= 1)) {
+      hasUpdatedMainMessage = await handleEvent({
+        type,
+        stage,
+        action,
+        state
+      });
+    }
 
-  await updateMainMessage();
+    if (doc.Item && !hasUpdatedMainMessage && !doc.Item.resolvedCommit && artifactRevision) {
+      await updateMainMessage();
+    }
+  }
 
   await handlePendingMessages();
   return 'Acknoledge Event';
