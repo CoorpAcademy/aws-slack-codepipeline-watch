@@ -56,13 +56,16 @@ const getActionDetails = (stageDetails, actionName) => {
 };
 
 const shouldProceed = ({type, stage, action, state, runOrder}, currentStage, currentActions) => {
-  const NO_ACTIONS = {runOrder: undefined, actions: []};
+  const NO_ACTIONS = nsa => ({runOrder: undefined, actions: [], noStartedAction: nsa});
+  // NO started to prevent stage to be taken without actions being processed
   if (type === 'stage') {
     if (state === 'STARTED' || state === 'RESUMED')
-      return [currentStage === null, {currentStage: stage, currentActions: NO_ACTIONS}];
+      return [currentStage === null, {currentStage: stage, currentActions: NO_ACTIONS(true)}];
     return [
-      _.isEmpty(currentActions.actions) && stage === currentStage,
-      {currentStage: null, currentActions: NO_ACTIONS}
+      _.isEmpty(currentActions.actions) &&
+        stage === currentStage &&
+        !currentActions.noStartedAction,
+      {currentStage: null, currentActions: NO_ACTIONS(false)}
     ];
   }
 
@@ -74,7 +77,11 @@ const shouldProceed = ({type, stage, action, state, runOrder}, currentStage, cur
         // §TODO Improve parallel action with checking the run order
         {
           currentStage,
-          currentActions: {actions: [...(currentActions.actions || []), action], runOrder}
+          currentActions: {
+            actions: [...(currentActions.actions || []), action],
+            noStartedAction: false,
+            runOrder
+          }
         }
       ];
     return [
@@ -83,12 +90,12 @@ const shouldProceed = ({type, stage, action, state, runOrder}, currentStage, cur
         currentStage,
         currentActions:
           currentActions.actions.length === 1
-            ? NO_ACTIONS
-            : {runOrder, actions: _.filter(_action => _action !== action)}
+            ? NO_ACTIONS()
+            : {noStartedAction: false, runOrder, actions: _.filter(_action => _action !== action)}
       }
     ];
   }
-  return [currentStage === null, {currentStage: null, currentActions: []}];
+  return [currentStage === null, NO_ACTIONS()];
 };
 
 exports.handler = async (event, context) => {
@@ -132,7 +139,8 @@ exports.handler = async (event, context) => {
           codepipelineDetails: (await codepipeline.getPipelineAsync({name: pipelineName})).pipeline,
           pendingMessages: {},
           currentActions: [],
-          currentStage: null
+          currentStage: null,
+          Lock: false
         }
       }),
       web.chat.postMessage({
@@ -146,17 +154,30 @@ exports.handler = async (event, context) => {
     return 'Message Acknowledge';
   }
 
-  const getRecord = async params => {
-    const record = await docClient.getAsync(params);
-    if (record.Item) return record;
+  const getRecord = async () => {
+    const params = {
+      TableName: dynamodbTable,
+      Key: {projectName, executionId: pipelineExecutionId},
+      UpdateExpression: 'SET #lock = :lock',
+      ConditionExpression: 'attribute_exists(slackThreadTs) AND #lock = :unlocked',
+      ExpressionAttributeNames: {'#lock': 'Lock'},
+      ExpressionAttributeValues: {':lock': true, ':unlocked': false},
+      ReturnValues: 'ALL_NEW'
+    };
+    const updateRecord = await docClient.updateAsync(params).catch(err => {
+      console.error(err);
+      return {};
+    });
+    console.log(updateRecord);
+    if (updateRecord.Attributes) return updateRecord.Attributes;
     await Promise.delay(500);
     return getRecord(params);
   };
-  const doc = await getRecord({
+  const record = await getRecord({
     TableName: dynamodbTable,
     Key: {projectName, executionId: pipelineExecutionId}
   });
-  const {currentStage, currentActions, codepipelineDetails} = doc.Item;
+  const {currentStage, currentActions, codepipelineDetails} = record;
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
   const shortCommitId = commitId && commitId.slice(0, 8);
@@ -205,7 +226,7 @@ exports.handler = async (event, context) => {
       as_user: true,
       channel,
       attachments: attachmentForEvent({type, stage, action, state, runOrder}),
-      thread_ts: doc.Item.slackThreadTs
+      thread_ts: record.slackThreadTs
     });
     // Update pipeline on treated messages
     if (type === 'pipeline') {
@@ -221,7 +242,7 @@ exports.handler = async (event, context) => {
         as_user: true,
         channel,
         attachments: [
-          ...doc.Item.originalMessage,
+          ...record.originalMessage,
           {
             text: commitDetailsMessage,
             mrkdwn_in: ['text'],
@@ -233,7 +254,7 @@ exports.handler = async (event, context) => {
             color: COLOR_CODES[state]
           }
         ],
-        ts: doc.Item.slackThreadTs
+        ts: record.slackThreadTs
       });
       return true;
     }
@@ -252,26 +273,21 @@ exports.handler = async (event, context) => {
       as_user: true,
       channel,
       attachments: [
-        ...doc.Item.originalMessage,
+        ...record.originalMessage,
         {
           text: commitDetailsMessage,
           mrkdwn_in: ['text']
         }
       ],
-      ts: doc.Item.slackThreadTs
+      ts: record.slackThreadTs
     });
   };
 
-  const handlePendingMessages = async () => {
-    const {
-      pendingMessages,
-      currentStage: _currentStage,
-      currentActions: _currentActions
-    } = (await getRecord({
-      TableName: dynamodbTable,
-      Key: {projectName, executionId: pipelineExecutionId}
-    })).Item;
-
+  const handlePendingMessages = async ({
+    pendingMessages,
+    currentStage: _currentStage,
+    currentActions: _currentActions
+  }) => {
     if (!_.isEmpty(pendingMessages)) {
       // Handling pending messages, Iterate and treat them as going
       const orderedEvents = _.map(
@@ -306,7 +322,7 @@ exports.handler = async (event, context) => {
               text: `*${_.size(simultaneusMessages)} SIMULATENUS MESSAGE*  ->  ${JSON.stringify(
                 simultaneusMessages
               )}`,
-              thread_ts: doc.Item.slackThreadTs
+              thread_ts: record.slackThreadTs
             });
           const simultaneousGuardList = _.map(([ev, ts]) => {
             return shouldProceed(extractEventSummary(ev), cStage, cActions);
@@ -322,7 +338,7 @@ exports.handler = async (event, context) => {
         await web.chat.postMessage({
           channel,
           text: `unpile _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingEvents[0]}}`,
-          thread_ts: doc.Item.slackThreadTs
+          thread_ts: record.slackThreadTs
         });
         //* /
         const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
@@ -366,10 +382,10 @@ exports.handler = async (event, context) => {
           disableMessages,
           web.chat.postMessage({
             channel,
-            text: `updateStage  ->  ${newPending.currentStage}, ${JSON.stringify(
-              newPending.currentActions
-            )}`,
-            thread_ts: doc.Item.slackThreadTs
+            text: `updateStage _(${context.awsRequestId.slice(0, 8)})_ ->  ${
+              newPending.currentStage
+            }, ${JSON.stringify(newPending.currentActions)}`,
+            thread_ts: record.slackThreadTs
           }),
           docClient.updateAsync({
             TableName: dynamodbTable,
@@ -397,7 +413,7 @@ exports.handler = async (event, context) => {
     text: `debug _(${context.awsRequestId.slice(0, 8)})_  ->  ${pendingMessage}, *${
       guard ? 'proceed' : 'postponed'
     }*`,
-    thread_ts: doc.Item.slackThreadTs
+    thread_ts: record.slackThreadTs
   });
   //* /
   if (!guard) {
@@ -435,11 +451,19 @@ exports.handler = async (event, context) => {
       });
     }
 
-    if (doc.Item && !hasUpdatedMainMessage && !doc.Item.resolvedCommit && artifactRevision) {
+    if (record && !hasUpdatedMainMessage && !record.resolvedCommit && artifactRevision) {
       await updateMainMessage();
     }
   }
 
-  await handlePendingMessages();
+  await handlePendingMessages(record);
+  // Lock Release
+  await docClient.updateAsync({
+    TableName: dynamodbTable,
+    Key: {projectName, executionId: pipelineExecutionId},
+    UpdateExpression: 'SET #lock = :lock',
+    ExpressionAttributeNames: {'#lock': 'Lock'},
+    ExpressionAttributeValues: {':lock': false}
+  });
   return 'Acknoledge Event';
 };
