@@ -19,6 +19,7 @@
     "@coorpacademy/coorpacademy"
   ],
   "rules": {
-    "strict": "off"
+    "strict": "off",
+    "no-shadow":["error", { "hoist": "never" }]
   }
 }
