@@ -4,8 +4,10 @@
   "description": "AWS Slack Codepipeline Watch",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "lint": "eslint *.js"
+    "test": "ava",
+    "lint": "eslint test *.js",
+    "cover": "nyc npm test",
+    "publish-coverage": "nyc report --reporter=lcov > coverage.lcov && codecov"
   },
   "keywords": [
     "AWS",
@@ -21,7 +23,11 @@
   },
   "devDependencies": {
     "@coorpacademy/eslint-plugin-coorpacademy": "^8.1.1",
+    "ava": "^0.25.0",
+    "ava-spec": "^1.1.1",
     "aws-sdk": "^2.253.1",
-    "eslint": "^4.19.1"
+    "codecov": "^3.0.2",
+    "eslint": "^4.19.1",
+    "nyc": "^12.0.2"
   }
 }
