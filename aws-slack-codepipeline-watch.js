@@ -3,11 +3,7 @@ const AWS = require('aws-sdk');
 const Promise = require('bluebird');
 const _ = require('lodash/fp');
 
-const getContext = async (event, lambdaContext, environ) => {
-  const codepipeline = Promise.promisifyAll(new AWS.CodePipeline({apiVersion: '2015-07-09'}));
-  const dynamoDocClient = Promise.promisifyAll(
-    new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'})
-  );
+const getContext = async (environ, event, lambdaContext = {}) => {
   const token = environ.SLACK_TOKEN;
   if (!token) throw new Error('Need a valid token defined in SLACK_TOKEN');
 
@@ -17,7 +13,16 @@ const getContext = async (event, lambdaContext, environ) => {
   const dynamodbTable = environ.DYNAMO_TABLE;
   if (!dynamodbTable) throw new Error('Need a valid table defined in DYNAMO_TABLE');
 
-  const web = new WebClient(token);
+  const codepipeline =
+    environ.NODE_ENV !== 'test'
+      ? Promise.promisifyAll(new AWS.CodePipeline({apiVersion: '2015-07-09'}))
+      : lambdaContext.codepipeline;
+  const dynamoDocClient =
+    environ.NODE_ENV !== 'test'
+      ? Promise.promisifyAll(new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'}))
+      : lambdaContext.dynamoDocClient;
+
+  const web = environ.NODE_ENV !== 'test' ? new WebClient(token) : lambdaContext.slack;
 
   const pipelineName = _.get('detail.pipeline', event);
   const pipelineExecutionId = _.get('detail.execution-id', event);
@@ -26,7 +31,7 @@ const getContext = async (event, lambdaContext, environ) => {
     pipelineExecutionId,
     pipelineName
   });
-
+  // §TODO try to generalize that
   const env = /staging/.test(pipelineName) ? 'staging' : 'production';
   const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
   const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`; // §TODO: move
@@ -322,7 +327,7 @@ exports.handler = async (event, lambdaContext) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
 
-  const context = await getContext(event, lambdaContext, process.env);
+  const context = await getContext(process.env, event, lambdaContext);
   const {aws} = context;
 
   if (event.detail.state === 'STARTED' && EVENT_TYPES[event['detail-type']] === 'pipeline') {
