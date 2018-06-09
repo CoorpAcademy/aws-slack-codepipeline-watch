@@ -3,21 +3,33 @@ const AWS = require('aws-sdk');
 const Promise = require('bluebird');
 const _ = require('lodash/fp');
 
-const getConfig = env => {
+const getContext = async (event, lambdaContext, environ) => {
   const codepipeline = Promise.promisifyAll(new AWS.CodePipeline({apiVersion: '2015-07-09'}));
   const dynamoDocClient = Promise.promisifyAll(
     new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'})
   );
-  const token = env.SLACK_TOKEN;
+  const token = environ.SLACK_TOKEN;
   if (!token) throw new Error('Need a valid token defined in SLACK_TOKEN');
 
-  const channel = env.SLACK_CHANNEL;
+  const channel = environ.SLACK_CHANNEL;
   if (!channel) throw new Error('Need a valid chanel defined in SLACK_CHANNEL');
 
-  const dynamodbTable = env.DYNAMO_TABLE;
+  const dynamodbTable = environ.DYNAMO_TABLE;
   if (!dynamodbTable) throw new Error('Need a valid table defined in DYNAMO_TABLE');
 
   const web = new WebClient(token);
+
+  const pipelineName = _.get('detail.pipeline', event);
+  const pipelineExecutionId = _.get('detail.execution-id', event);
+
+  const pipelineData = await codepipeline.getPipelineExecutionAsync({
+    pipelineExecutionId,
+    pipelineName
+  });
+
+  const env = /staging/.test(pipelineName) ? 'staging' : 'production';
+  const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
+  const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`; // §TODO: move
 
   return {
     slack: {
@@ -29,6 +41,14 @@ const getConfig = env => {
       codepipeline,
       dynamodbTable,
       dynamoDocClient
+    },
+    event: {
+      projectName,
+      pipelineName,
+      executionId: pipelineExecutionId,
+      env,
+      pipelineData,
+      link
     }
   };
 };
@@ -125,23 +145,33 @@ const shouldProceed = (
   ];
 };
 
-exports.handler = async (event, context) => {
+const getRecord = async context => {
+  const {aws, event: {projectName, executionId}} = context;
+  const params = {
+    TableName: aws.dynamodbTable,
+    Key: {projectName, executionId},
+    UpdateExpression: 'SET #lock = :lock',
+    ConditionExpression: 'attribute_exists(slackThreadTs) AND #lock = :unlocked',
+    ExpressionAttributeNames: {'#lock': 'Lock'},
+    ExpressionAttributeValues: {':lock': true, ':unlocked': false},
+    ReturnValues: 'ALL_NEW'
+  };
+  const updateRecord = await aws.dynamoDocClient.updateAsync(params).catch(err => {
+    // §TODO catch error type to distinguish ConditionFailed de Throughput
+    return {};
+  });
+  if (updateRecord.Attributes) return updateRecord.Attributes;
+  await Promise.delay(500);
+  return getRecord(context);
+};
+
+exports.handler = async (event, lambdaContext) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
 
-  const {aws, slack} = getConfig(process.env);
-
-  const pipelineName = event.detail.pipeline;
-  const pipelineExecutionId = event.detail['execution-id'];
-
-  const pipelineData = await aws.codepipeline.getPipelineExecutionAsync({
-    pipelineExecutionId,
-    pipelineName
-  });
-
-  const env = /staging/.test(pipelineName) ? 'staging' : 'production';
-  const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
-  const link = `https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/${pipelineName}`;
+  const context = getContext(event, lambdaContext, process.env);
+  const {aws, slack} = context;
+  const {projectName, pipelineName, executionId, env, pipelineData, link} = context.event;
 
   if (event.detail.state === 'STARTED' && EVENT_TYPES[event['detail-type']] === 'pipeline') {
     const startText = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
@@ -149,7 +179,7 @@ exports.handler = async (event, context) => {
     const startAttachments = [
       {title: startTitle, text: startText, color: COLOR_CODES.STARTED, mrkdwn_in: ['text']}
     ];
-    const pipelineExectionMessage = `\`execution-id\`: <${link}/history|${pipelineExecutionId}>`;
+    const pipelineExectionMessage = `\`execution-id\`: <${link}/history|${executionId}>`;
 
     const slackPostedMessage = await slack.web.chat.postMessage({
       as_user: true,
@@ -161,7 +191,7 @@ exports.handler = async (event, context) => {
         TableName: aws.dynamodbTable,
         Item: {
           projectName,
-          executionId: pipelineExecutionId,
+          executionId,
           slackThreadTs: slackPostedMessage.message.ts,
           originalMessage: startAttachments,
           resolvedCommit: false,
@@ -184,27 +214,9 @@ exports.handler = async (event, context) => {
     return 'Message Acknowledge';
   }
 
-  const getRecord = async () => {
-    const params = {
-      TableName: aws.dynamodbTable,
-      Key: {projectName, executionId: pipelineExecutionId},
-      UpdateExpression: 'SET #lock = :lock',
-      ConditionExpression: 'attribute_exists(slackThreadTs) AND #lock = :unlocked',
-      ExpressionAttributeNames: {'#lock': 'Lock'},
-      ExpressionAttributeValues: {':lock': true, ':unlocked': false},
-      ReturnValues: 'ALL_NEW'
-    };
-    const updateRecord = await aws.dynamoDocClient.updateAsync(params).catch(err => {
-      // §TODO catch error type to distinguish ConditionFailed de Throughput
-      return {};
-    });
-    if (updateRecord.Attributes) return updateRecord.Attributes;
-    await Promise.delay(500);
-    return getRecord(params);
-  };
   const record = await getRecord({
     TableName: aws.dynamodbTable,
-    Key: {projectName, executionId: pipelineExecutionId}
+    Key: {projectName, executionId}
   });
   let futureRecord = _.cloneDeep(record);
   const {currentStage, currentActions, codepipelineDetails} = record;
@@ -456,4 +468,4 @@ exports.handler = async (event, context) => {
 };
 
 exports.shouldProceed = shouldProceed;
-exports.getConfig = getConfig;
+exports.getContext = getContext;
