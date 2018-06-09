@@ -43,6 +43,7 @@ const getContext = async (event, lambdaContext, environ) => {
       dynamoDocClient
     },
     event: {
+      event,
       projectName,
       pipelineName,
       executionId: pipelineExecutionId,
@@ -165,59 +166,62 @@ const getRecord = async context => {
   return getRecord(context);
 };
 
+const handleInitialMessage = async context => {
+  const {aws, slack} = context;
+  const {event, projectName, executionId, pipelineName, env, link} = context.event;
+  const startText = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
+  const startTitle = `${projectName} (${env})`;
+  const startAttachments = [
+    {title: startTitle, text: startText, color: COLOR_CODES.STARTED, mrkdwn_in: ['text']}
+  ];
+  const pipelineExectionMessage = `\`execution-id\`: <${link}/history|${executionId}>`;
+
+  const slackPostedMessage = await slack.web.chat.postMessage({
+    as_user: true,
+    channel: slack.channel,
+    attachments: startAttachments
+  });
+  await Promise.all([
+    aws.dynamoDocClient.putAsync({
+      TableName: aws.dynamodbTable,
+      Item: {
+        projectName,
+        executionId,
+        slackThreadTs: slackPostedMessage.message.ts,
+        originalMessage: startAttachments,
+        resolvedCommit: false,
+        codepipelineDetails: (await aws.codepipeline.getPipelineAsync({name: pipelineName}))
+          .pipeline,
+        pendingMessages: {},
+        currentActions: [],
+        currentStage: null,
+        Lock: false
+      }
+    }),
+    slack.web.chat.postMessage({
+      as_user: true,
+      channel: slack.channel,
+      text: pipelineExectionMessage,
+      thread_ts: slackPostedMessage.message.ts
+    })
+  ]);
+
+  return 'Message Acknowledge';
+};
+
 exports.handler = async (event, lambdaContext) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
 
-  const context = getContext(event, lambdaContext, process.env);
+  const context = await getContext(event, lambdaContext, process.env);
   const {aws, slack} = context;
-  const {projectName, pipelineName, executionId, env, pipelineData, link} = context.event;
+  const {projectName, executionId, env, pipelineData, link} = context.event;
 
   if (event.detail.state === 'STARTED' && EVENT_TYPES[event['detail-type']] === 'pipeline') {
-    const startText = `Deployment just *${event.detail.state.toLowerCase()}* <${link}|🔗>`;
-    const startTitle = `${projectName} (${env})`;
-    const startAttachments = [
-      {title: startTitle, text: startText, color: COLOR_CODES.STARTED, mrkdwn_in: ['text']}
-    ];
-    const pipelineExectionMessage = `\`execution-id\`: <${link}/history|${executionId}>`;
-
-    const slackPostedMessage = await slack.web.chat.postMessage({
-      as_user: true,
-      channel: slack.channel,
-      attachments: startAttachments
-    });
-    await Promise.all([
-      aws.dynamoDocClient.putAsync({
-        TableName: aws.dynamodbTable,
-        Item: {
-          projectName,
-          executionId,
-          slackThreadTs: slackPostedMessage.message.ts,
-          originalMessage: startAttachments,
-          resolvedCommit: false,
-          codepipelineDetails: (await aws.codepipeline.getPipelineAsync({name: pipelineName}))
-            .pipeline,
-          pendingMessages: {},
-          currentActions: [],
-          currentStage: null,
-          Lock: false
-        }
-      }),
-      slack.web.chat.postMessage({
-        as_user: true,
-        channel: slack.channel,
-        text: pipelineExectionMessage,
-        thread_ts: slackPostedMessage.message.ts
-      })
-    ]);
-
-    return 'Message Acknowledge';
+    return handleInitialMessage(context);
   }
 
-  const record = await getRecord({
-    TableName: aws.dynamodbTable,
-    Key: {projectName, executionId}
-  });
+  const record = await getRecord(context);
   let futureRecord = _.cloneDeep(record);
   const {currentStage, currentActions, codepipelineDetails} = record;
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
