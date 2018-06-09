@@ -3,18 +3,35 @@ const AWS = require('aws-sdk');
 const Promise = require('bluebird');
 const _ = require('lodash/fp');
 
-const codepipeline = Promise.promisifyAll(new AWS.CodePipeline({apiVersion: '2015-07-09'}));
-const docClient = Promise.promisifyAll(new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'}));
-const token = process.env.SLACK_TOKEN;
-if (!token) throw new Error('Need a valid token defined in SLACK_TOKEN');
+const getConfig = env => {
+  const codepipeline = Promise.promisifyAll(new AWS.CodePipeline({apiVersion: '2015-07-09'}));
+  const dynamoDocClient = Promise.promisifyAll(
+    new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'})
+  );
+  const token = env.SLACK_TOKEN;
+  if (!token) throw new Error('Need a valid token defined in SLACK_TOKEN');
 
-const channel = process.env.SLACK_CHANNEL;
-if (!channel) throw new Error('Need a valid chanel defined in SLACK_CHANNEL');
+  const channel = env.SLACK_CHANNEL;
+  if (!channel) throw new Error('Need a valid chanel defined in SLACK_CHANNEL');
 
-const dynamodbTable = process.env.DYNAMO_TABLE;
-if (!dynamodbTable) throw new Error('Need a valid chanel defined in DYNAMO_TABLE');
+  const dynamodbTable = env.DYNAMO_TABLE;
+  if (!dynamodbTable) throw new Error('Need a valid table defined in DYNAMO_TABLE');
 
-const web = new WebClient(token);
+  const web = new WebClient(token);
+
+  return {
+    slack: {
+      token,
+      channel,
+      web
+    },
+    aws: {
+      codepipeline,
+      dynamodbTable,
+      dynamoDocClient
+    }
+  };
+};
 
 const EVENT_TYPES = {
   'CodePipeline Pipeline Execution State Change': 'pipeline',
@@ -55,7 +72,11 @@ const getActionDetails = (stageDetails, actionName) => {
   return _.find({name: actionName}, stageDetails.actions);
 };
 
-const shouldProceed = ({type, stage, action, state, runOrder}, currentStage, currentActions) => {
+const shouldProceed = (
+  {type, stage, action, state, runOrder},
+  currentStage,
+  currentActions = {}
+) => {
   const NO_ACTIONS = nsa => ({runOrder: undefined, actions: [], noStartedAction: nsa});
   // NO started to prevent stage to be taken without actions being processed
   if (type === 'stage') {
@@ -108,10 +129,12 @@ exports.handler = async (event, context) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
 
+  const {aws, slack} = getConfig(process.env);
+
   const pipelineName = event.detail.pipeline;
   const pipelineExecutionId = event.detail['execution-id'];
 
-  const pipelineData = await codepipeline.getPipelineExecutionAsync({
+  const pipelineData = await aws.codepipeline.getPipelineExecutionAsync({
     pipelineExecutionId,
     pipelineName
   });
@@ -128,30 +151,31 @@ exports.handler = async (event, context) => {
     ];
     const pipelineExectionMessage = `\`execution-id\`: <${link}/history|${pipelineExecutionId}>`;
 
-    const slackPostedMessage = await web.chat.postMessage({
+    const slackPostedMessage = await slack.web.chat.postMessage({
       as_user: true,
-      channel,
+      channel: slack.channel,
       attachments: startAttachments
     });
     await Promise.all([
-      docClient.putAsync({
-        TableName: dynamodbTable,
+      aws.dynamoDocClient.putAsync({
+        TableName: aws.dynamodbTable,
         Item: {
           projectName,
           executionId: pipelineExecutionId,
           slackThreadTs: slackPostedMessage.message.ts,
           originalMessage: startAttachments,
           resolvedCommit: false,
-          codepipelineDetails: (await codepipeline.getPipelineAsync({name: pipelineName})).pipeline,
+          codepipelineDetails: (await aws.codepipeline.getPipelineAsync({name: pipelineName}))
+            .pipeline,
           pendingMessages: {},
           currentActions: [],
           currentStage: null,
           Lock: false
         }
       }),
-      web.chat.postMessage({
+      slack.web.chat.postMessage({
         as_user: true,
-        channel,
+        channel: slack.channel,
         text: pipelineExectionMessage,
         thread_ts: slackPostedMessage.message.ts
       })
@@ -162,7 +186,7 @@ exports.handler = async (event, context) => {
 
   const getRecord = async () => {
     const params = {
-      TableName: dynamodbTable,
+      TableName: aws.dynamodbTable,
       Key: {projectName, executionId: pipelineExecutionId},
       UpdateExpression: 'SET #lock = :lock',
       ConditionExpression: 'attribute_exists(slackThreadTs) AND #lock = :unlocked',
@@ -170,7 +194,7 @@ exports.handler = async (event, context) => {
       ExpressionAttributeValues: {':lock': true, ':unlocked': false},
       ReturnValues: 'ALL_NEW'
     };
-    const updateRecord = await docClient.updateAsync(params).catch(err => {
+    const updateRecord = await aws.dynamoDocClient.updateAsync(params).catch(err => {
       // §TODO catch error type to distinguish ConditionFailed de Throughput
       return {};
     });
@@ -179,7 +203,7 @@ exports.handler = async (event, context) => {
     return getRecord(params);
   };
   const record = await getRecord({
-    TableName: dynamodbTable,
+    TableName: aws.dynamodbTable,
     Key: {projectName, executionId: pipelineExecutionId}
   });
   let futureRecord = _.cloneDeep(record);
@@ -230,9 +254,9 @@ exports.handler = async (event, context) => {
   };
 
   const handleEvent = async ({type, stage, action, state, runOrder}) => {
-    await web.chat.postMessage({
+    await slack.web.chat.postMessage({
       as_user: true,
-      channel,
+      channel: slack.channel,
       attachments: attachmentForEvent({type, stage, action, state, runOrder}),
       thread_ts: record.slackThreadTs
     });
@@ -246,9 +270,9 @@ exports.handler = async (event, context) => {
         FAILED: `Operation is in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
       }[state];
 
-      await web.chat.update({
+      await slack.web.chat.update({
         as_user: true,
-        channel,
+        channel: slack.channel,
         attachments: [
           ...record.originalMessage,
           {
@@ -271,9 +295,9 @@ exports.handler = async (event, context) => {
   const updateMainMessage = async () => {
     futureRecord = _.set('resolvedCommit', true, futureRecord);
 
-    await web.chat.update({
+    await slack.web.chat.update({
       as_user: true,
-      channel,
+      channel: slack.channel,
       attachments: [
         ...record.originalMessage,
         {
@@ -423,10 +447,13 @@ exports.handler = async (event, context) => {
   );
 
   // Update and Lock Release
-  await docClient.putAsync({
-    TableName: dynamodbTable,
+  await aws.dynamoDocClient.putAsync({
+    TableName: aws.dynamodbTable,
     Item: _.set('Lock', false, futureRecord)
   });
 
   return 'Acknoledge Event';
 };
+
+exports.shouldProceed = shouldProceed;
+exports.getConfig = getConfig;
