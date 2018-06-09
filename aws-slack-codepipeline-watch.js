@@ -209,21 +209,9 @@ const handleInitialMessage = async context => {
   return 'Message Acknowledge';
 };
 
-exports.handler = async (event, lambdaContext) => {
-  if (event.source !== 'aws.codepipeline')
-    throw new Error(`Called from wrong source ${event.source}`);
-
-  const context = await getContext(event, lambdaContext, process.env);
-  const {aws, slack} = context;
-  const {projectName, executionId, env, pipelineData, link} = context.event;
-
-  if (event.detail.state === 'STARTED' && EVENT_TYPES[event['detail-type']] === 'pipeline') {
-    return handleInitialMessage(context);
-  }
-
-  const record = await getRecord(context);
-  let futureRecord = _.cloneDeep(record);
-  const {currentStage, currentActions, codepipelineDetails} = record;
+const computeExecutionDetailsProperties = (context, record) => {
+  const {event, pipelineData} = context.event;
+  const {codepipelineDetails} = record;
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
   const shortCommitId = commitId && commitId.slice(0, 8);
@@ -238,93 +226,129 @@ exports.handler = async (event, lambdaContext) => {
     EVENT_TYPES[event['detail-type']] === 'action'
       ? getActionDetails(eventCurrentStage, event.detail.action).runOrder
       : undefined;
+  return {
+    artifactRevision,
+    commitId,
+    shortCommitId,
+    commitMessage,
+    commitDetailsMessage,
+    eventCurrentStage,
+    nbActionsOfStage,
+    eventCurrentOrder,
+    codepipelineDetails,
+    originalMessage: record.originalMessage,
+    slackThreadTs: record.slackThreadTs
+  };
+};
+
+const attachmentForEvent = (context, {type, stage, action, state, runOrder}) => {
+  const {event: {projectName, env, link}, executionDetails: {nbActionsOfStage}} = context;
+  let title, text, color;
+  if (type === 'pipeline') {
+    text = `Deployment just *${state.toLowerCase()}* <${link}|🔗>`;
+    title = `${projectName} (${env})`;
+    color = COLOR_CODES[state];
+  } else if (type === 'stage') {
+    text = `Stage *${stage}* just *${state.toLowerCase()}*`;
+    color = COLOR_CODES.pale[state];
+  } else if (type === 'action') {
+    text = `> Action *${action}* _(stage *${stage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
+    color = COLOR_CODES.palest[state];
+  }
+  return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
+};
+
+const updateMainMessage = async context => {
+  const {slack, executionDetails: {commitDetailsMessage, slackThreadTs, originalMessage}} = context;
+  await slack.web.chat.update({
+    as_user: true,
+    channel: slack.channel,
+    attachments: [
+      ...originalMessage,
+      {
+        text: commitDetailsMessage,
+        mrkdwn_in: ['text']
+      }
+    ],
+    ts: slackThreadTs
+  });
+};
+
+const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
+  const {
+    slack,
+    event: {link},
+    executionDetails: {commitDetailsMessage, slackThreadTs, originalMessage}
+  } = context;
+  await slack.web.chat.postMessage({
+    as_user: true,
+    channel: slack.channel,
+    attachments: attachmentForEvent(context, {type, stage, action, state, runOrder}),
+    thread_ts: slackThreadTs
+  });
+  // Update pipeline on treated messages
+  if (type === 'pipeline') {
+    const extraMessage = {
+      SUCCEEDED: 'Operation is now *Completed!*',
+      RESUMED: "Operation was *Resumed*, it's now in progress",
+      CANCELED: 'Operation was *Canceled*',
+      SUPERSEDED: 'Operation was *Superseded* while waiting, see next build',
+      FAILED: `Operation is in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
+    }[state];
+
+    await slack.web.chat.update({
+      as_user: true,
+      channel: slack.channel,
+      attachments: [
+        ...originalMessage,
+        {
+          text: commitDetailsMessage,
+          mrkdwn_in: ['text'],
+          color: COLOR_CODES.palest[state]
+        },
+        {
+          text: extraMessage,
+          mrkdwn_in: ['text'],
+          color: COLOR_CODES[state]
+        }
+      ],
+      ts: slackThreadTs
+    });
+    return true;
+  }
+};
+
+exports.handler = async (event, lambdaContext) => {
+  if (event.source !== 'aws.codepipeline')
+    throw new Error(`Called from wrong source ${event.source}`);
+
+  const context = await getContext(event, lambdaContext, process.env);
+  const {aws} = context;
+
+  if (event.detail.state === 'STARTED' && EVENT_TYPES[event['detail-type']] === 'pipeline') {
+    return handleInitialMessage(context);
+  }
+
+  const record = await getRecord(context);
+  const {currentStage, currentActions} = record;
+  let futureRecord = _.cloneDeep(record);
+  context.executionDetails = computeExecutionDetailsProperties(context, record); // §todo:maybe: rename
   const eventSummary = {
     type: EVENT_TYPES[event['detail-type']],
     stage: event.detail.stage,
     action: event.detail.action,
     state: event.detail.state,
-    runOrder: eventCurrentOrder
+    runOrder: context.executionDetails.eventCurrentOrder
   };
   const pendingMessage = _.compact([
     EVENT_TYPES[event['detail-type']],
     event.detail.state,
     event.detail.stage,
     event.detail.action,
-    eventCurrentOrder
+    context.executionDetails.eventCurrentOrder
   ]).join(':');
 
-  const attachmentForEvent = ({type, stage, action, state, runOrder}) => {
-    let title, text, color;
-    if (type === 'pipeline') {
-      text = `Deployment just *${state.toLowerCase()}* <${link}|🔗>`;
-      title = `${projectName} (${env})`;
-      color = COLOR_CODES[state];
-    } else if (type === 'stage') {
-      text = `Stage *${stage}* just *${state.toLowerCase()}*`;
-      color = COLOR_CODES.pale[state];
-    } else if (type === 'action') {
-      text = `> Action *${action}* _(stage *${stage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
-      color = COLOR_CODES.palest[state];
-    }
-    return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
-  };
-
-  const handleEvent = async ({type, stage, action, state, runOrder}) => {
-    await slack.web.chat.postMessage({
-      as_user: true,
-      channel: slack.channel,
-      attachments: attachmentForEvent({type, stage, action, state, runOrder}),
-      thread_ts: record.slackThreadTs
-    });
-    // Update pipeline on treated messages
-    if (type === 'pipeline') {
-      const extraMessage = {
-        SUCCEEDED: 'Operation is now *Completed!*',
-        RESUMED: "Operation was *Resumed*, it's now in progress",
-        CANCELED: 'Operation was *Canceled*',
-        SUPERSEDED: 'Operation was *Superseded* while waiting, see next build',
-        FAILED: `Operation is in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
-      }[state];
-
-      await slack.web.chat.update({
-        as_user: true,
-        channel: slack.channel,
-        attachments: [
-          ...record.originalMessage,
-          {
-            text: commitDetailsMessage,
-            mrkdwn_in: ['text'],
-            color: COLOR_CODES.palest[state]
-          },
-          {
-            text: extraMessage,
-            mrkdwn_in: ['text'],
-            color: COLOR_CODES[state]
-          }
-        ],
-        ts: record.slackThreadTs
-      });
-      return true;
-    }
-  };
-
-  const updateMainMessage = async () => {
-    futureRecord = _.set('resolvedCommit', true, futureRecord);
-
-    await slack.web.chat.update({
-      as_user: true,
-      channel: slack.channel,
-      attachments: [
-        ...record.originalMessage,
-        {
-          text: commitDetailsMessage,
-          mrkdwn_in: ['text']
-        }
-      ],
-      ts: record.slackThreadTs
-    });
-  };
-
+  // §FIXME refactor needed before extraction
   const handlePendingMessages = async ({
     pendingMessages,
     currentStage: _currentStage,
@@ -341,6 +365,7 @@ exports.handler = async (event, lambdaContext) => {
     const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
 
     const extractEventSummary = ev => {
+      // §todo extract
       const eventPart = ev.split(':');
       return {
         type: eventPart[0],
@@ -374,9 +399,12 @@ exports.handler = async (event, lambdaContext) => {
       }
       const _eventSummary = extractEventSummary(pendingEvents[0]);
 
-      const eventAssociatedStage = getStageDetails(codepipelineDetails, _eventSummary.stage);
+      const eventAssociatedStage = getStageDetails(
+        context.executionDetails.codepipelineDetails,
+        _eventSummary.stage
+      );
       if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
-        await handleEvent(_eventSummary);
+        await handleEvent(context, _eventSummary);
       if (_.size(pendingEvents) === 1)
         return {
           pendingEvents,
@@ -442,17 +470,28 @@ exports.handler = async (event, lambdaContext) => {
   );
 
   let hasUpdatedMainMessage;
-  if (guard && !(type === 'action' && _.size(_.get('actions', eventCurrentStage)) <= 1)) {
-    hasUpdatedMainMessage = await handleEvent({
+  if (
+    guard &&
+    !(
+      type === 'action' && _.size(_.get('actions', context.executionDetails.eventCurrentStage)) <= 1
+    )
+  ) {
+    hasUpdatedMainMessage = await handleEvent(context, {
       type,
       stage,
       action,
       state,
-      runOrder: eventCurrentOrder
+      runOrder: context.executionDetails.eventCurrentOrder
     });
   }
-  if (record && !hasUpdatedMainMessage && !record.resolvedCommit && artifactRevision) {
-    await updateMainMessage();
+  if (
+    record &&
+    !hasUpdatedMainMessage &&
+    !record.resolvedCommit &&
+    context.executionDetails.artifactRevision
+  ) {
+    await updateMainMessage(context);
+    futureRecord = _.set('resolvedCommit', true, futureRecord);
   }
   await handlePendingMessages(
     _.set(
