@@ -13,7 +13,7 @@ describe('shouldProceed pipeline handling', it => {
     t.is(guard, true);
     t.deepEqual(update, {
       currentStage: null,
-      currentActions: {runOrder: undefined, actions: [], noStartedAction: undefined}
+      currentActions: {runOrder: 1, actions: [], noStartedAction: true}
     });
   });
 });
@@ -66,7 +66,7 @@ describe('shouldProceed stage handling', it => {
     t.is(guard, true);
     t.deepEqual(update, {
       currentStage: null,
-      currentActions: {runOrder: undefined, actions: [], noStartedAction: undefined}
+      currentActions: {runOrder: 1, actions: [], noStartedAction: true}
     });
   });
 
@@ -75,7 +75,7 @@ describe('shouldProceed stage handling', it => {
     t.is(guard, true);
     t.deepEqual(update, {
       currentStage: 'stage',
-      currentActions: {actions: [], noStartedAction: true, runOrder: undefined}
+      currentActions: {actions: [], noStartedAction: true, runOrder: 1}
     });
   });
 
@@ -87,7 +87,7 @@ describe('shouldProceed stage handling', it => {
     t.is(guard, true);
     t.deepEqual(update, {
       currentStage: null,
-      currentActions: {actions: [], noStartedAction: false, runOrder: undefined}
+      currentActions: {actions: [], noStartedAction: false, runOrder: 1}
     });
   });
 });

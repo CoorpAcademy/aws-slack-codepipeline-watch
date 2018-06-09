@@ -103,7 +103,11 @@ const shouldProceed = (
   currentStage,
   currentActions = {}
 ) => {
-  const NO_ACTIONS = nsa => ({runOrder: undefined, actions: [], noStartedAction: nsa});
+  const NO_ACTIONS = (nsa, _runOrder = 1) => ({
+    runOrder: _runOrder,
+    actions: [],
+    noStartedAction: nsa
+  });
   // NO started to prevent stage to be taken without actions being processed
   if (type === 'stage') {
     if (state === 'STARTED' || state === 'RESUMED')
@@ -119,8 +123,7 @@ const shouldProceed = (
   if (type === 'action') {
     if (state === 'STARTED' || state === 'RESUMED')
       return [
-        currentStage === stage &&
-          (currentActions.runOrder === undefined || currentActions.runOrder === runOrder),
+        currentStage === stage && currentActions.runOrder === runOrder,
         // §TODO Improve parallel action with checking the run order
         {
           currentStage,
@@ -137,7 +140,7 @@ const shouldProceed = (
         currentStage,
         currentActions:
           _.size(_.get('actions', currentActions)) === 1
-            ? NO_ACTIONS()
+            ? NO_ACTIONS(false, runOrder + 1)
             : {noStartedAction: false, runOrder, actions: _.filter(_action => _action !== action)}
       }
     ];
@@ -146,7 +149,7 @@ const shouldProceed = (
     currentStage === null,
     {
       currentStage,
-      currentActions: NO_ACTIONS()
+      currentActions: NO_ACTIONS(true)
     }
   ];
 };
@@ -326,7 +329,6 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
 exports.handler = async (event, lambdaContext) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
-
   const context = await getContext(process.env, event, lambdaContext);
   const {aws} = context;
 
@@ -377,15 +379,15 @@ exports.handler = async (event, lambdaContext) => {
         state: eventPart[1],
         stage: eventPart[2],
         action: eventPart[3],
-        runOrder: eventPart[4]
+        runOrder: _.toNumber(eventPart[4])
       };
     };
     const treatOneEventAtATime = async (pendingEvents, cStage, cActions, handledMessages) => {
       const guardList = _.map(
-        ev => shouldProceed(extractEventSummary(ev), cStage, cActions),
+        ev => [ev, ...shouldProceed(extractEventSummary(ev), cStage, cActions)],
         pendingEvents
       );
-      let [firstGuard, firstUpdates] = guardList[0];
+      let [firstEvent, firstGuard, firstUpdates] = guardList[0];
       if (!firstGuard) {
         // handling simultaneus messages
         const simultaneusMessages = _.filter(
@@ -394,15 +396,18 @@ exports.handler = async (event, lambdaContext) => {
         );
         // §TODO: check simulatenus messages
         const simultaneousGuardList = _.map(([ev, ts]) => {
-          return shouldProceed(extractEventSummary(ev), cStage, cActions);
+          return [ev, ...shouldProceed(extractEventSummary(ev), cStage, cActions)];
         }, simultaneusMessages);
-        const simultaneousGuard = _.find(([_guard, _update]) => _guard, simultaneousGuardList);
+        const simultaneousGuard = _.find(
+          ([_event, _guard, _update]) => _guard,
+          simultaneousGuardList
+        );
 
         if (!simultaneousGuard)
           return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
-        else [firstGuard, firstUpdates] = simultaneousGuard;
+        else [firstEvent, firstGuard, firstUpdates] = simultaneousGuard;
       }
-      const _eventSummary = extractEventSummary(pendingEvents[0]);
+      const _eventSummary = extractEventSummary(firstEvent);
 
       const eventAssociatedStage = getStageDetails(
         context.executionDetails.codepipelineDetails,
