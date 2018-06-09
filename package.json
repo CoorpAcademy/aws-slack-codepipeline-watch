@@ -1,6 +1,6 @@
 {
   "name": "aws-slack-codepipeline-watch",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "AWS Slack Codepipeline Watch",
   "main": "index.js",
   "scripts": {
