@@ -71,4 +71,30 @@ describe('getConfig with expected arguments', it => {
     t.is(typeof aws.codepipeline.getPipelineExecutionAsync, 'function');
     t.is(typeof slack.web.chat.someMethod, 'function');
   });
+  it('return expected values from event', async t => {
+    const context = await getContext(
+      {
+        NODE_ENV: 'test',
+        SLACK_TOKEN: 'st',
+        SLACK_CHANNEL: 'sc',
+        DYNAMO_TABLE: 'dt'
+      },
+      eventStub,
+      {
+        slack: {chat: {someMethod: () => 'slack'}},
+        dynamoDocClient: {putAsync: () => 'dynamo'},
+        codepipeline: {getPipelineExecutionAsync: () => 'codepipeline'}
+      }
+    );
+    t.deepEqual(context.event, {
+      event: eventStub,
+      env: 'production',
+      projectName: 'my-project',
+      pipelineName: 'my-org-codepipeline-my-project',
+      executionId: 'eid',
+      pipelineData: 'codepipeline',
+      link:
+        'https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/my-org-codepipeline-my-project'
+    });
+  });
 });

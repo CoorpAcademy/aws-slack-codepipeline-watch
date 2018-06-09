@@ -216,7 +216,7 @@ const handleInitialMessage = async context => {
 
 const computeExecutionDetailsProperties = (context, record) => {
   const {event, pipelineData} = context.event;
-  const {codepipelineDetails} = record;
+  const {codepipelineDetails, originalMessage, slackThreadTs} = record;
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
   const shortCommitId = commitId && commitId.slice(0, 8);
@@ -241,8 +241,8 @@ const computeExecutionDetailsProperties = (context, record) => {
     nbActionsOfStage,
     eventCurrentOrder,
     codepipelineDetails,
-    originalMessage: record.originalMessage,
-    slackThreadTs: record.slackThreadTs
+    originalMessage,
+    slackThreadTs
   };
 };
 
@@ -517,3 +517,10 @@ exports.handler = async (event, lambdaContext) => {
 
 exports.shouldProceed = shouldProceed;
 exports.getContext = getContext;
+exports.shouldProceed = shouldProceed;
+exports.getRecord = getRecord;
+exports.handleInitialMessage = handleInitialMessage;
+exports.updateMainMessage = updateMainMessage;
+exports.computeExecutionDetailsProperties = computeExecutionDetailsProperties;
+exports.attachmentForEvent = attachmentForEvent;
+exports.handleEvent = handleEvent;
