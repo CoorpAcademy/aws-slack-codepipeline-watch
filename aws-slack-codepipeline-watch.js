@@ -196,7 +196,7 @@ const getCommitDetails = async (context, pipelineDetails) => {
     'event.pipelineData.pipelineExecution.artifactRevisions[0]',
     context
   );
-  if (_.size(githubDetails) !== 1 || !artifactRevision || !_.has('github.token', context))
+  if (_.size(githubDetails) !== 1 || !artifactRevision || _.isEmpty(_.get('github.token', context)))
     return null;
   // not hanlded for now
   const {configuration: {Branch, Owner, Repo}} = githubDetails[0];
