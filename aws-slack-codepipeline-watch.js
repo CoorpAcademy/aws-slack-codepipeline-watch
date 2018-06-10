@@ -215,7 +215,7 @@ const getCommitDetails = async (context, pipelineDetails) => {
         if (err) return callback(err);
         if (response.statusCode !== 200)
           return callback(new Error(`Status code was ${response.statusCode}`));
-        return callback(null, body);
+        return callback(null, JSON.parse(body));
       }
     );
   });
@@ -312,6 +312,7 @@ const computeExecutionDetailsProperties = context => {
     commitId,
     shortCommitId,
     commitMessage,
+    commitUrl,
     commitDetailsMessage,
     eventCurrentStage,
     nbActionsOfStage,
@@ -352,13 +353,21 @@ const getCommitMessage = context => {
 
   return {
     fields: [
-      {title: 'Commit', value: `\`${context.executionDetails.shortCommitId}\``, short: true},
-      {title: 'Author', value: `_${commitDetails.authorName}_`, short: true}
+      {
+        title: 'Commit',
+        value: `\`<${context.executionDetails.commitUrl}|${
+          context.executionDetails.shortCommitId
+        }>\``,
+        short: true
+      },
+      {
+        title: 'Author',
+        value: `_<${commitDetails.authorLink}|${commitDetails.authorName}>_`,
+        short: true
+      }
     ],
-    footer: `<https://github.com/${commitDetails.owner}/${commitDetails.repo}|${
-      context.executionDetails.commitMessage
-    }>`,
-    footer_icon: commitDetails.authorLink,
+    footer: context.executionDetails.commitMessage,
+    footer_icon: commitDetails.authorIcon,
     mrkdwn_in: ['text', 'fields'],
     author_icon: 'https://github.com/github.png?size=16',
     author_name: `Github ${commitDetails.owner}/${commitDetails.repo}`,
