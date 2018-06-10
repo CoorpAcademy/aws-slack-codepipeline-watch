@@ -207,6 +207,7 @@ const getCommitDetails = async (context, pipelineDetails) => {
         url: `https://api.github.com/repos/${Owner}/${Repo}/commits/${artifactRevision.revisionId}`,
         headers: {
           Authorization: `token ${context.github.token}`,
+          'User-Agent': 'codepipeline-watch-lambda',
           json: true
         }
       },
