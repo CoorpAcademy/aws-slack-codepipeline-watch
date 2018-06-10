@@ -338,48 +338,84 @@ const attachmentForEvent = (context, {type, stage, action, state, runOrder}) => 
   return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
 };
 
+const getCommitMessage = context => {
+  if (!context.executionDetails.commitId) return null;
+  const commitDetails = _.get('record.commitDetails', context);
+  if (!commitDetails) {
+    return {
+      text: context.executionDetails.commitDetailsMessage,
+      mrkdwn_in: ['text'],
+      color: '#dddddd'
+    };
+  }
+
+  return {
+    fields: [
+      {title: 'Commit', value: `\`${context.executionDetails.shortCommitId}\``, short: true},
+      {title: 'Author', value: `_${commitDetails.authorName}_`, short: true}
+    ],
+    footer: `<https://github.com/${commitDetails.owner}/${commitDetails.repo}|${
+      context.executionDetails.commitMessage
+    }>`,
+    footer_icon: commitDetails.authorLink,
+    mrkdwn_in: ['text', 'fields'],
+    author_icon: 'https://github.com/github.png?size=16',
+    author_name: `Github ${commitDetails.owner}/${commitDetails.repo}`,
+    author_link: `https://github.com/${commitDetails.owner}/${commitDetails.repo}`,
+    color: '#dddddd'
+  };
+};
+
 const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
-  const {
-    slack,
-    event: {link},
-    executionDetails: {commitDetailsMessage, slackThreadTs, originalMessage}
-  } = context;
+  const {slack, event: {link}, executionDetails: {slackThreadTs, originalMessage}} = context;
   await slack.web.chat.postMessage({
     as_user: true,
     channel: slack.channel,
     attachments: attachmentForEvent(context, {type, stage, action, state, runOrder}),
     thread_ts: slackThreadTs
   });
+
+  const commitMessage = getCommitMessage(context);
+  let extraMessage;
   // Update pipeline on treated messages
   if (type === 'pipeline') {
-    // §todo more update
-    const extraMessage = {
+    const pipelineMessage = {
       SUCCEEDED: 'Operation is now *Completed!*',
       RESUMED: "Operation was *Resumed*, it's now in progress",
       CANCELED: 'Operation was *Canceled*',
       SUPERSEDED: 'Operation was *Superseded* while waiting, see next build',
       FAILED: `Operation is in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
     }[state];
+    extraMessage = {
+      text: pipelineMessage,
+      mrkdwn_in: ['text'],
+      color: COLOR_CODES[state]
+    };
+    if (commitMessage) commitMessage.color = COLOR_CODES.pale[state];
+  }
+  if (type === 'stage') {
+    const stageMessage = {
+      SUCCEEDED: `Stage _${stage}_ succeeded, waiting for the next stage to start`,
+      RESUMED: `Stage _${stage}_ resumed, now in progress`,
+      STARTED: `Stage _${stage}_ started, now in progress`,
+      CANCELED: `Stage _${stage}_ canceled`,
+      SUPERSEDED: `Stage _${stage}_ was superseeded`,
+      FAILED: `Stage _${stage} in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
+    }[state];
+    extraMessage = {
+      text: stageMessage,
+      mrkdwn_in: ['text'],
+      color: COLOR_CODES.palest[state]
+    };
+  }
 
+  if (extraMessage || context.freshCommitDetails) {
     await slack.web.chat.update({
       as_user: true,
       channel: slack.channel,
-      attachments: [
-        ...originalMessage,
-        {
-          text: commitDetailsMessage,
-          mrkdwn_in: ['text'],
-          color: COLOR_CODES.palest[state]
-        },
-        {
-          text: extraMessage,
-          mrkdwn_in: ['text'],
-          color: COLOR_CODES[state]
-        }
-      ],
+      attachments: _.compact([...originalMessage, commitMessage, extraMessage]),
       ts: slackThreadTs
     });
-    return true;
   }
 };
 
@@ -491,7 +527,11 @@ exports.handler = async (event, lambdaContext) => {
   const {currentStage, currentActions} = record;
   context.record = _.cloneDeep(record);
   if (!record.commitDetails) {
-    context.record.commitDetails = await getCommitDetails(context, record.codepipelineDetails);
+    const commitDetails = await getCommitDetails(context, record.codepipelineDetails);
+    if (commitDetails) {
+      context.record.commitDetails = commitDetails;
+      context.freshCommitDetails = true;
+    }
   }
   context.executionDetails = computeExecutionDetailsProperties(context); // §todo:maybe: rename
   const eventSummary = {

@@ -154,7 +154,7 @@ describe('lambda handler', it => {
   });
 
   it('process correctly another stage message, the first with commit', async t => {
-    t.plan(5); // §todo update
+    t.plan(6);
     const event = {
       version: '0',
       id: 'CWE-event-id',
@@ -281,9 +281,30 @@ describe('lambda handler', it => {
                   title: 'test (production)'
                 },
                 {
+                  author_icon: 'https://github.com/github.png?size=16',
+                  author_link: 'https://github.com/CoorpAcademy/my-repo',
+                  author_name: 'Github CoorpAcademy/my-repo',
+                  color: '#dddddd',
+                  fields: [
+                    {
+                      short: true,
+                      title: 'Commit',
+                      value: '`ea42d3e8`'
+                    },
+                    {
+                      short: true,
+                      title: 'Author',
+                      value: '_AdrieanKhisbe_'
+                    }
+                  ],
+                  footer: '<https://github.com/CoorpAcademy/my-repo|Message Commit>',
+                  footer_icon: 'https://github.com/AdrieanKhisbe',
+                  mrkdwn_in: ['text', 'fields']
+                },
+                {
+                  color: '#6a9fd4',
                   mrkdwn_in: ['text'],
-                  text:
-                    'commit `<https://github.com/CoorpAcademy/myrepo/commit/ea42d3e8f8696860db721b7519b8eadd8a70f270|ea42d3e8>`\n> Message Commit'
+                  text: 'Stage _Tests_ started, now in progress'
                 }
               ],
               channel: 'slackChannel',
