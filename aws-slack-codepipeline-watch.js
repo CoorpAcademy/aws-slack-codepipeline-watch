@@ -190,7 +190,7 @@ const getCommitDetails = async (context, pipelineDetails) => {
         provider: 'GitHub',
         version: '1'
       }),
-    _.flatMap('actions', pipelineDetails.pipeline.stages)
+    _.flatMap('actions', _.get('stages', pipelineDetails))
   );
   const artifactRevision = _.get(
     'event.pipelineData.pipelineExecution.artifactRevisions[0]',
@@ -270,7 +270,7 @@ const handleInitialMessage = async context => {
         slackThreadTs: slackPostedMessage.message.ts,
         originalMessage: startAttachments,
         resolvedCommit: false,
-        codepipelineDetails: pipelineDetails.pipeline,
+        codepipelineDetails: pipelineDetails,
         commitDetails,
         pendingMessages: {},
         currentActions: [],
