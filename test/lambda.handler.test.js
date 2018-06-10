@@ -2,7 +2,55 @@ const {describe} = require('ava-spec');
 const Promise = require('bluebird');
 const {handler} = require('../aws-slack-codepipeline-watch');
 const codepipelineData = require('./fixtures/codepipeline-data');
+const githubCommitDetails = require('./fixtures/github-commit-details');
 
+const codepipelineExecutionWithoutArtefact = {
+  pipelineExecution: {
+    pipelineName: 'codepipeline-test',
+    pipelineVersion: 1,
+    pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
+    status: 'Running',
+    artifactRevisions: []
+  }
+};
+const codepipelineExecutionWithArtefact = {
+  pipelineExecution: {
+    pipelineName: 'codepipeline-test',
+    pipelineVersion: 1,
+    pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
+    status: 'Running',
+    artifactRevisions: [
+      {
+        name: 'source',
+        revisionId: 'ea42d3e8f8696860db721b7519b8eadd8a70f270',
+        revisionChangeIdentifier: '2018-06-07T16:33:00Z',
+        revisionSummary: 'Message Commit',
+        created: '2018-06-07T16:33:00.000Z',
+        revisionUrl:
+          'https://github.com/CoorpAcademy/myrepo/commit/ea42d3e8f8696860db721b7519b8eadd8a70f270'
+      }
+    ]
+  }
+};
+
+const commitDetails = {
+     author: 'AdrieanKhisbe',
+     authorIcon: 'https://github.com/AdrieanKhisbe.png?size=16',
+     authorLink: 'https://github.com/AdrieanKhisbe',
+     authorName: 'AdrieanKhisbe',
+     branch: 'develop',
+     committer: 'GitHub',
+     committerIcon: 'https://github.com/web-flow.png?size=16',
+     committerLink: 'https://github.com/web-flow',
+     committerName: 'GitHub',
+     owner: 'CoorpAcademy',
+     repo: 'my-repo',
+     stats: {
+       additions: 1,
+       deletions: 2,
+       total: 3
+     }
+   }
 describe('lambda handler', it => {
   process.env.SLACK_TOKEN = 'slackToken';
   process.env.SLACK_CHANNEL = 'slackChannel';
@@ -33,13 +81,13 @@ describe('lambda handler', it => {
             pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
             pipelineName: 'codepipeline-test'
           });
-          return Promise.resolve({});
+          return Promise.resolve(codepipelineExecutionWithoutArtefact);
         },
         getPipelineAsync: params => {
           t.deepEqual(params, {
             name: 'codepipeline-test'
           });
-          return Promise.resolve({});
+          return Promise.resolve(codepipelineData);
         }
       },
       dynamoDocClient: {
@@ -49,7 +97,7 @@ describe('lambda handler', it => {
             Item: {
               Lock: false,
               commitDetails: null,
-              codepipelineDetails: undefined,
+              codepipelineDetails: codepipelineData.pipeline,
               currentActions: [],
               currentStage: null,
               executionId: '01234567-0123-0123-0123-012345678901',
@@ -64,7 +112,6 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              resolvedCommit: false,
               slackThreadTs: 'timestamp'
             }
           });
@@ -107,7 +154,7 @@ describe('lambda handler', it => {
   });
 
   it('process correctly another stage message, the first with commit', async t => {
-    t.plan(6);
+    t.plan(5); // §todo update
     const event = {
       version: '0',
       id: 'CWE-event-id',
@@ -132,25 +179,7 @@ describe('lambda handler', it => {
             pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
             pipelineName: 'codepipeline-test'
           });
-          return Promise.resolve({
-            pipelineExecution: {
-              pipelineName: 'codepipeline-test',
-              pipelineVersion: 1,
-              pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
-              status: 'Running',
-              artifactRevisions: [
-                {
-                  name: 'source',
-                  revisionId: 'ea42d3e8f8696860db721b7519b8eadd8a70f270',
-                  revisionChangeIdentifier: '2018-06-07T16:33:00Z',
-                  revisionSummary: 'Message Commit',
-                  created: '2018-06-07T16:33:00.000Z',
-                  revisionUrl:
-                    'https://github.com/CoorpAcademy/myrepo/commit/ea42d3e8f8696860db721b7519b8eadd8a70f270'
-                }
-              ]
-            }
-          });
+          return Promise.resolve(codepipelineExecutionWithArtefact);
         },
         getPipelineAsync: params => {
           t.deepEqual(params, {
@@ -165,6 +194,7 @@ describe('lambda handler', it => {
             TableName: 'dynamoTable',
             Item: {
               Lock: false,
+              commitDetails,
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: {actions: [], noStartedAction: true, runOrder: 1},
               currentStage: 'Tests',
@@ -180,7 +210,6 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              resolvedCommit: true,
               slackThreadTs: 'timestamp'
             }
           });
@@ -213,12 +242,15 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              resolvedCommit: false,
               slackThreadTs: 'timestamp'
             }
           });
         }
       },
+      request: (param, callback) => {
+        callback(null, {statusCode: 200}, githubCommitDetails);
+      },
+      github: {token: 'tokenstub'},
       slack: {
         chat: {
           postMessage(params) {
@@ -236,6 +268,7 @@ describe('lambda handler', it => {
               thread_ts: 'timestamp'
             });
           },
+       // §FIXME not called since updateMessage was disabled   
           update(params) {
             t.deepEqual(params, {
               as_user: true,
@@ -292,25 +325,7 @@ describe('lambda handler', it => {
             pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
             pipelineName: 'codepipeline-test'
           });
-          return Promise.resolve({
-            pipelineExecution: {
-              pipelineName: 'codepipeline-test',
-              pipelineVersion: 1,
-              pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
-              status: 'Running',
-              artifactRevisions: [
-                {
-                  name: 'source',
-                  revisionId: 'ea42d3e8f8696860db721b7519b8eadd8a70f270',
-                  revisionChangeIdentifier: '2018-06-07T16:33:00Z',
-                  revisionSummary: 'Message Commit',
-                  created: '2018-06-07T16:33:00.000Z',
-                  revisionUrl:
-                    'https://github.com/CoorpAcademy/myrepo/commit/ea42d3e8f8696860db721b7519b8eadd8a70f270'
-                }
-              ]
-            }
-          });
+          return Promise.resolve(codepipelineExecutionWithArtefact);
         },
         getPipelineAsync: params => {
           t.deepEqual(params, {
@@ -325,6 +340,7 @@ describe('lambda handler', it => {
             TableName: 'dynamoTable',
             Item: {
               Lock: false,
+              commitDetails,
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: {actions: [], noStartedAction: true, runOrder: 1},
               currentStage: 'Tests',
@@ -340,7 +356,6 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {'action:SUCCEEDED:Tests:Lint:1': '2017-04-22T03:31:47Z'},
               projectName: 'test',
-              resolvedCommit: true,
               slackThreadTs: 'timestamp'
             }
           });
@@ -358,6 +373,7 @@ describe('lambda handler', it => {
           return Promise.resolve({
             Attributes: {
               Lock: false,
+              commitDetails,
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: {actions: [], noStartedAction: true, runOrder: 1},
               currentStage: 'Tests',
@@ -373,12 +389,12 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              resolvedCommit: true,
               slackThreadTs: 'timestamp'
             }
           });
         }
       },
+      github: {token: 'tokenstub'},
       slack: {
         chat: {
           postMessage(params) {
@@ -453,25 +469,7 @@ describe('lambda handler', it => {
             pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
             pipelineName: 'codepipeline-test'
           });
-          return Promise.resolve({
-            pipelineExecution: {
-              pipelineName: 'codepipeline-test',
-              pipelineVersion: 1,
-              pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
-              status: 'Running',
-              artifactRevisions: [
-                {
-                  name: 'source',
-                  revisionId: 'ea42d3e8f8696860db721b7519b8eadd8a70f270',
-                  revisionChangeIdentifier: '2018-06-07T16:33:00Z',
-                  revisionSummary: 'Message Commit',
-                  created: '2018-06-07T16:33:00.000Z',
-                  revisionUrl:
-                    'https://github.com/CoorpAcademy/myrepo/commit/ea42d3e8f8696860db721b7519b8eadd8a70f270'
-                }
-              ]
-            }
-          });
+          return Promise.resolve(codepipelineExecutionWithArtefact);
         },
         getPipelineAsync: params => {
           t.deepEqual(params, {
@@ -486,6 +484,7 @@ describe('lambda handler', it => {
             TableName: 'dynamoTable',
             Item: {
               Lock: false,
+              commitDetails,
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: {actions: [], noStartedAction: false, runOrder: 2},
               currentStage: 'Tests',
@@ -501,7 +500,6 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              resolvedCommit: true,
               slackThreadTs: 'timestamp'
             }
           });
@@ -519,6 +517,7 @@ describe('lambda handler', it => {
           return Promise.resolve({
             Attributes: {
               Lock: false,
+              commitDetails,
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: {actions: [], noStartedAction: true, runOrder: 1},
               currentStage: 'Tests',
@@ -534,12 +533,12 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {'action:SUCCEEDED:Tests:Lint:1': '2017-04-22T03:31:47Z'},
               projectName: 'test',
-              resolvedCommit: true,
               slackThreadTs: 'timestamp'
             }
           });
         }
       },
+      github: {token: 'tokenstub'},
       slack: {
         chat: {
           postMessage(params) {
@@ -612,25 +611,7 @@ describe('lambda handler', it => {
             pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
             pipelineName: 'codepipeline-test'
           });
-          return Promise.resolve({
-            pipelineExecution: {
-              pipelineName: 'codepipeline-test',
-              pipelineVersion: 1,
-              pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
-              status: 'Running',
-              artifactRevisions: [
-                {
-                  name: 'source',
-                  revisionId: 'ea42d3e8f8696860db721b7519b8eadd8a70f270',
-                  revisionChangeIdentifier: '2018-06-07T16:33:00Z',
-                  revisionSummary: 'Message Commit',
-                  created: '2018-06-07T16:33:00.000Z',
-                  revisionUrl:
-                    'https://github.com/CoorpAcademy/myrepo/commit/ea42d3e8f8696860db721b7519b8eadd8a70f270'
-                }
-              ]
-            }
-          });
+          return Promise.resolve(codepipelineExecutionWithArtefact);
         },
         getPipelineAsync: params => {
           t.deepEqual(params, {
@@ -645,6 +626,7 @@ describe('lambda handler', it => {
             TableName: 'dynamoTable',
             Item: {
               Lock: false,
+              commitDetails,
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: {actions: ['Tests'], noStartedAction: false, runOrder: 2},
               currentStage: 'Tests',
@@ -660,11 +642,11 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              resolvedCommit: true,
               slackThreadTs: 'timestamp'
             }
           });
         },
+        github: {token: 'tokenstub'},
         updateAsync(params) {
           t.deepEqual(params, {
             TableName: 'dynamoTable',
@@ -678,6 +660,7 @@ describe('lambda handler', it => {
           return Promise.resolve({
             Attributes: {
               Lock: false,
+              commitDetails,
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: {actions: [], noStartedAction: true, runOrder: 1},
               currentStage: 'Tests',
@@ -696,7 +679,6 @@ describe('lambda handler', it => {
                 'action:SUCCEEDED:Tests:Lint:1': '2017-04-22T03:31:47Z'
               },
               projectName: 'test',
-              resolvedCommit: true,
               slackThreadTs: 'timestamp'
             }
           });

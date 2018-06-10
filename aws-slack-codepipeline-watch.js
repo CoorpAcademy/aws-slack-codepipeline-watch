@@ -23,7 +23,7 @@ const getContext = async (environ, event, lambdaContext = {}) => {
       ? Promise.promisifyAll(new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'}))
       : lambdaContext.dynamoDocClient;
 
-  const requireClient = environ.NODE_ENV !== 'test' ? request : lambdaContext.require;
+  const requestClient = environ.NODE_ENV !== 'test' ? request : lambdaContext.request;
 
   const web = environ.NODE_ENV !== 'test' ? new WebClient(token) : lambdaContext.slack;
 
@@ -53,7 +53,7 @@ const getContext = async (environ, event, lambdaContext = {}) => {
     github: {
       token: environ.GITHUB_AUTH_TOKEN
     },
-    require: requireClient,
+    request: requestClient,
     event: {
       event,
       projectName,
@@ -269,7 +269,6 @@ const handleInitialMessage = async context => {
         executionId,
         slackThreadTs: slackPostedMessage.message.ts,
         originalMessage: startAttachments,
-        resolvedCommit: false,
         codepipelineDetails: pipelineDetails,
         commitDetails,
         pendingMessages: {},
@@ -289,9 +288,9 @@ const handleInitialMessage = async context => {
   return 'Message Acknowledge';
 };
 
-const computeExecutionDetailsProperties = (context, record) => {
+const computeExecutionDetailsProperties = context => {
   const {event, pipelineData} = context.event;
-  const {codepipelineDetails, originalMessage, slackThreadTs} = record;
+  const {codepipelineDetails, originalMessage, slackThreadTs} = context.record;
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
   // §TODO : move up
@@ -339,6 +338,7 @@ const attachmentForEvent = (context, {type, stage, action, state, runOrder}) => 
   return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
 };
 
+/* §TODO : kill
 const updateMainMessage = async context => {
   const {slack, executionDetails: {commitDetailsMessage, slackThreadTs, originalMessage}} = context;
   await slack.web.chat.update({
@@ -354,6 +354,7 @@ const updateMainMessage = async context => {
     ts: slackThreadTs
   });
 };
+*/
 
 const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
   const {
@@ -369,6 +370,7 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
   });
   // Update pipeline on treated messages
   if (type === 'pipeline') {
+    // §todo more update
     const extraMessage = {
       SUCCEEDED: 'Operation is now *Completed!*',
       RESUMED: "Operation was *Resumed*, it's now in progress",
@@ -411,8 +413,11 @@ exports.handler = async (event, lambdaContext) => {
 
   const record = await getRecord(context);
   const {currentStage, currentActions} = record;
-  let futureRecord = _.cloneDeep(record);
-  context.executionDetails = computeExecutionDetailsProperties(context, record); // §todo:maybe: rename
+  context.record = _.cloneDeep(record); // ¤here
+  if (!record.commitDetails) {
+    context.record.commitDetails = await getCommitDetails(context, record.codepipelineDetails);
+  }
+  context.executionDetails = computeExecutionDetailsProperties(context); // §todo:maybe: rename
   const eventSummary = {
     type: EVENT_TYPES[event['detail-type']],
     stage: event.detail.stage,
@@ -428,7 +433,7 @@ exports.handler = async (event, lambdaContext) => {
     context.executionDetails.eventCurrentOrder
   ]).join(':');
 
-  // §FIXME refactor needed before extraction
+  // §FIXME refactor needed before extraction // ※inprogress
   const handlePendingMessages = async ({
     pendingMessages,
     currentStage: _currentStage,
@@ -509,15 +514,15 @@ exports.handler = async (event, lambdaContext) => {
       []
     );
     if (!_.isEmpty(newPending.handledMessages)) {
-      futureRecord = _.reduce(
+      context.record = _.reduce(
         (acc, handledMessage) => _.unset(`pendingMessages.${handledMessage}`, acc),
-        futureRecord,
+        context.record,
         newPending.handledMessages
       );
-      futureRecord = _.set(
+      context.record = _.set(
         'currentActions',
         newPending.currentActions,
-        _.set('currentStage', newPending.currentStage, futureRecord)
+        _.set('currentStage', newPending.currentStage, context.record)
       );
     }
     return newPending;
@@ -540,26 +545,26 @@ exports.handler = async (event, lambdaContext) => {
       pendingResult.currentActions
     );
     if (!retryGuard) {
-      futureRecord = _.set(`pendingMessages.${pendingMessage}`, event.time, futureRecord);
+      context.record = _.set(`pendingMessages.${pendingMessage}`, event.time, context.record);
       update = {currentActions: record.currentActions, currentStage: record.currentStage};
     } else {
       update = retryUpdate;
     }
   }
-  futureRecord = _.set(
+  context.record = _.set(
     'currentActions',
     update.currentActions,
-    _.set('currentStage', update.currentStage, futureRecord)
+    _.set('currentStage', update.currentStage, context.record)
   );
 
-  let hasUpdatedMainMessage;
+  // let hasUpdatedMainMessage; //§tokill
   if (
     guard &&
     !(
       type === 'action' && _.size(_.get('actions', context.executionDetails.eventCurrentStage)) <= 1
     )
   ) {
-    hasUpdatedMainMessage = await handleEvent(context, {
+    await handleEvent(context, {
       type,
       stage,
       action,
@@ -567,6 +572,7 @@ exports.handler = async (event, lambdaContext) => {
       runOrder: context.executionDetails.eventCurrentOrder
     });
   }
+  /* ¤check!!
   if (
     record &&
     !hasUpdatedMainMessage &&
@@ -574,8 +580,8 @@ exports.handler = async (event, lambdaContext) => {
     context.executionDetails.artifactRevision
   ) {
     await updateMainMessage(context);
-    futureRecord = _.set('resolvedCommit', true, futureRecord);
   }
+  */
   await handlePendingMessages(
     _.set(
       'currentActions',
@@ -587,7 +593,7 @@ exports.handler = async (event, lambdaContext) => {
   // Update and Lock Release
   await aws.dynamoDocClient.putAsync({
     TableName: aws.dynamodbTable,
-    Item: _.set('Lock', false, futureRecord)
+    Item: _.set('Lock', false, context.record)
   });
 
   return 'Acknoledge Event';
@@ -599,7 +605,6 @@ exports.shouldProceed = shouldProceed;
 exports.getRecord = getRecord;
 exports.getCommitDetails = getCommitDetails;
 exports.handleInitialMessage = handleInitialMessage;
-exports.updateMainMessage = updateMainMessage;
 exports.computeExecutionDetailsProperties = computeExecutionDetailsProperties;
 exports.attachmentForEvent = attachmentForEvent;
 exports.handleEvent = handleEvent;

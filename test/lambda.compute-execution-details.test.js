@@ -19,14 +19,15 @@ describe('computeExecutionDetailsProperties', it => {
             ]
           }
         }
+      },
+      record: {
+        codepipelineDetails: {pipeline: 'details'},
+        slackThreadTs: 'record.slackThreadTs',
+        originalMessage: 'record.originalMessage'
       }
     };
-    const record = {
-      codepipelineDetails: {pipeline: 'details'},
-      slackThreadTs: 'record.slackThreadTs',
-      originalMessage: 'record.originalMessage'
-    };
-    const res = computeExecutionDetailsProperties(context, record);
+
+    const res = computeExecutionDetailsProperties(context);
     t.deepEqual(res, {
       artifactRevision: {
         revisionId: '42424242424242',
@@ -66,21 +67,21 @@ describe('computeExecutionDetailsProperties', it => {
             ]
           }
         }
+      },
+      record: {
+        codepipelineDetails: {
+          stages: [
+            {
+              name: 'mystage',
+              actions: [{name: 'myaction', runOrder: 1}, {name: 'myaction2', runOrder: 2}]
+            }
+          ]
+        },
+        slackThreadTs: 'record.slackThreadTs',
+        originalMessage: 'record.originalMessage'
       }
     };
-    const record = {
-      codepipelineDetails: {
-        stages: [
-          {
-            name: 'mystage',
-            actions: [{name: 'myaction', runOrder: 1}, {name: 'myaction2', runOrder: 2}]
-          }
-        ]
-      },
-      slackThreadTs: 'record.slackThreadTs',
-      originalMessage: 'record.originalMessage'
-    };
-    const res = computeExecutionDetailsProperties(context, record);
+    const res = computeExecutionDetailsProperties(context);
     t.deepEqual(res, {
       artifactRevision: {
         revisionId: '42424242424242',
