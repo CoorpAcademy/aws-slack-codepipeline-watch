@@ -338,24 +338,6 @@ const attachmentForEvent = (context, {type, stage, action, state, runOrder}) => 
   return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
 };
 
-/* §TODO : kill
-const updateMainMessage = async context => {
-  const {slack, executionDetails: {commitDetailsMessage, slackThreadTs, originalMessage}} = context;
-  await slack.web.chat.update({
-    as_user: true,
-    channel: slack.channel,
-    attachments: [
-      ...originalMessage,
-      {
-        text: commitDetailsMessage,
-        mrkdwn_in: ['text']
-      }
-    ],
-    ts: slackThreadTs
-  });
-};
-*/
-
 const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
   const {
     slack,
@@ -401,144 +383,139 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
   }
 };
 
+// §FIXME refactor needed before extraction // ※inprogress
+const handlePendingMessages = async (
+  context,
+  {pendingMessages, currentStage: _currentStage, currentActions: _currentActions}
+) => {
+  if (_.isEmpty(pendingMessages)) {
+    return {
+      pendingMessages,
+      currentStage: _currentStage,
+      currentActions: _currentActions
+    };
+  }
+  // Handling pending messages, Iterate and treat them as going
+  const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
+
+  const extractEventSummary = ev => {
+    // §todo extract
+    const eventPart = ev.split(':');
+    return {
+      type: eventPart[0],
+      state: eventPart[1],
+      stage: eventPart[2],
+      action: eventPart[3],
+      runOrder: _.toNumber(eventPart[4])
+    };
+  };
+  const treatOneEventAtATime = async (pendingEvents, cStage, cActions, handledMessages) => {
+    const guardList = _.map(
+      ev => [ev, ...shouldProceed(extractEventSummary(ev), cStage, cActions)],
+      pendingEvents
+    );
+    let [firstEvent, firstGuard, firstUpdates] = guardList[0];
+    if (!firstGuard) {
+      // handling simultaneus messages
+      const simultaneusMessages = _.filter(
+        ([k, v]) => v === pendingMessages[pendingEvents[0]],
+        _.toPairs(pendingMessages)
+      );
+      // §TODO: check simulatenus messages
+      const simultaneousGuardList = _.map(([ev, ts]) => {
+        return [ev, ...shouldProceed(extractEventSummary(ev), cStage, cActions)];
+      }, simultaneusMessages);
+      const simultaneousGuard = _.find(
+        ([_event, _guard, _update]) => _guard,
+        simultaneousGuardList
+      );
+
+      if (!simultaneousGuard)
+        return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
+      else [firstEvent, firstGuard, firstUpdates] = simultaneousGuard;
+    }
+    const _eventSummary = extractEventSummary(firstEvent);
+
+    const eventAssociatedStage = getStageDetails(
+      context.executionDetails.codepipelineDetails,
+      _eventSummary.stage
+    );
+    if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
+      await handleEvent(context, _eventSummary);
+    if (_.size(pendingEvents) === 1)
+      return {
+        pendingEvents,
+        currentStage: firstUpdates.currentStage,
+        currentActions: firstUpdates.currentActions,
+        handledMessages: [...handledMessages, pendingEvents[0]]
+      };
+    return treatOneEventAtATime(
+      [..._.slice(1, _.size(pendingEvents), pendingEvents)],
+      firstUpdates.currentStage,
+      firstUpdates.currentActions,
+      [...handledMessages, pendingEvents[0]]
+    );
+  };
+  const newPending = await treatOneEventAtATime(orderedEvents, _currentStage, _currentActions, []);
+  if (!_.isEmpty(newPending.handledMessages)) {
+    context.record = _.reduce(
+      (acc, handledMessage) => _.unset(`pendingMessages.${handledMessage}`, acc),
+      context.record,
+      newPending.handledMessages
+    );
+    context.record = _.set(
+      'currentActions',
+      newPending.currentActions,
+      _.set('currentStage', newPending.currentStage, context.record)
+    );
+  }
+  return newPending;
+};
+
 exports.handler = async (event, lambdaContext) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
   const context = await getContext(process.env, event, lambdaContext);
   const {aws} = context;
 
-  if (event.detail.state === 'STARTED' && EVENT_TYPES[event['detail-type']] === 'pipeline') {
+  const type = EVENT_TYPES[event['detail-type']];
+  const stage = event.detail.stage;
+  const action = event.detail.action;
+  const state = event.detail.state;
+
+  if (state === 'STARTED' && type === 'pipeline') {
     return handleInitialMessage(context);
   }
 
   const record = await getRecord(context);
   const {currentStage, currentActions} = record;
-  context.record = _.cloneDeep(record); // ¤here
+  context.record = _.cloneDeep(record);
   if (!record.commitDetails) {
     context.record.commitDetails = await getCommitDetails(context, record.codepipelineDetails);
   }
   context.executionDetails = computeExecutionDetailsProperties(context); // §todo:maybe: rename
   const eventSummary = {
-    type: EVENT_TYPES[event['detail-type']],
-    stage: event.detail.stage,
-    action: event.detail.action,
-    state: event.detail.state,
+    type,
+    stage,
+    action,
+    state,
     runOrder: context.executionDetails.eventCurrentOrder
   };
   const pendingMessage = _.compact([
-    EVENT_TYPES[event['detail-type']],
-    event.detail.state,
-    event.detail.stage,
-    event.detail.action,
+    type,
+    state,
+    stage,
+    action,
     context.executionDetails.eventCurrentOrder
   ]).join(':');
 
-  // §FIXME refactor needed before extraction // ※inprogress
-  const handlePendingMessages = async ({
-    pendingMessages,
-    currentStage: _currentStage,
-    currentActions: _currentActions
-  }) => {
-    if (_.isEmpty(pendingMessages)) {
-      return {
-        pendingMessages,
-        currentStage: _currentStage,
-        currentActions: _currentActions
-      };
-    }
-    // Handling pending messages, Iterate and treat them as going
-    const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
-
-    const extractEventSummary = ev => {
-      // §todo extract
-      const eventPart = ev.split(':');
-      return {
-        type: eventPart[0],
-        state: eventPart[1],
-        stage: eventPart[2],
-        action: eventPart[3],
-        runOrder: _.toNumber(eventPart[4])
-      };
-    };
-    const treatOneEventAtATime = async (pendingEvents, cStage, cActions, handledMessages) => {
-      const guardList = _.map(
-        ev => [ev, ...shouldProceed(extractEventSummary(ev), cStage, cActions)],
-        pendingEvents
-      );
-      let [firstEvent, firstGuard, firstUpdates] = guardList[0];
-      if (!firstGuard) {
-        // handling simultaneus messages
-        const simultaneusMessages = _.filter(
-          ([k, v]) => v === pendingMessages[pendingEvents[0]],
-          _.toPairs(pendingMessages)
-        );
-        // §TODO: check simulatenus messages
-        const simultaneousGuardList = _.map(([ev, ts]) => {
-          return [ev, ...shouldProceed(extractEventSummary(ev), cStage, cActions)];
-        }, simultaneusMessages);
-        const simultaneousGuard = _.find(
-          ([_event, _guard, _update]) => _guard,
-          simultaneousGuardList
-        );
-
-        if (!simultaneousGuard)
-          return {pendingEvents, currentStage: cStage, currentActions: cActions, handledMessages};
-        else [firstEvent, firstGuard, firstUpdates] = simultaneousGuard;
-      }
-      const _eventSummary = extractEventSummary(firstEvent);
-
-      const eventAssociatedStage = getStageDetails(
-        context.executionDetails.codepipelineDetails,
-        _eventSummary.stage
-      );
-      if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
-        await handleEvent(context, _eventSummary);
-      if (_.size(pendingEvents) === 1)
-        return {
-          pendingEvents,
-          currentStage: firstUpdates.currentStage,
-          currentActions: firstUpdates.currentActions,
-          handledMessages: [...handledMessages, pendingEvents[0]]
-        };
-      return treatOneEventAtATime(
-        [..._.slice(1, _.size(pendingEvents), pendingEvents)],
-        firstUpdates.currentStage,
-        firstUpdates.currentActions,
-        [...handledMessages, pendingEvents[0]]
-      );
-    };
-    const newPending = await treatOneEventAtATime(
-      orderedEvents,
-      _currentStage,
-      _currentActions,
-      []
-    );
-    if (!_.isEmpty(newPending.handledMessages)) {
-      context.record = _.reduce(
-        (acc, handledMessage) => _.unset(`pendingMessages.${handledMessage}`, acc),
-        context.record,
-        newPending.handledMessages
-      );
-      context.record = _.set(
-        'currentActions',
-        newPending.currentActions,
-        _.set('currentStage', newPending.currentStage, context.record)
-      );
-    }
-    return newPending;
-  };
-
-  const type = EVENT_TYPES[event['detail-type']];
-  const stage = event.detail.stage;
-  const action = event.detail.action;
-  const state = event.detail.state;
   // eslint-disable-next-line prefer-const
   let [guard, update] = shouldProceed(eventSummary, currentStage, currentActions);
 
   let pendingResult;
   if (!guard) {
     // Postpone current message if cannot handle it after pending messages
-    pendingResult = await handlePendingMessages(record);
+    pendingResult = await handlePendingMessages(context, record);
     const [retryGuard, retryUpdate] = shouldProceed(
       eventSummary,
       pendingResult.currentStage,
@@ -557,7 +534,6 @@ exports.handler = async (event, lambdaContext) => {
     _.set('currentStage', update.currentStage, context.record)
   );
 
-  // let hasUpdatedMainMessage; //§tokill
   if (
     guard &&
     !(
@@ -572,17 +548,9 @@ exports.handler = async (event, lambdaContext) => {
       runOrder: context.executionDetails.eventCurrentOrder
     });
   }
-  /* ¤check!!
-  if (
-    record &&
-    !hasUpdatedMainMessage &&
-    !record.resolvedCommit &&
-    context.executionDetails.artifactRevision
-  ) {
-    await updateMainMessage(context);
-  }
-  */
+
   await handlePendingMessages(
+    context,
     _.set(
       'currentActions',
       update.currentActions,

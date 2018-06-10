@@ -34,23 +34,23 @@ const codepipelineExecutionWithArtefact = {
 };
 
 const commitDetails = {
-     author: 'AdrieanKhisbe',
-     authorIcon: 'https://github.com/AdrieanKhisbe.png?size=16',
-     authorLink: 'https://github.com/AdrieanKhisbe',
-     authorName: 'AdrieanKhisbe',
-     branch: 'develop',
-     committer: 'GitHub',
-     committerIcon: 'https://github.com/web-flow.png?size=16',
-     committerLink: 'https://github.com/web-flow',
-     committerName: 'GitHub',
-     owner: 'CoorpAcademy',
-     repo: 'my-repo',
-     stats: {
-       additions: 1,
-       deletions: 2,
-       total: 3
-     }
-   }
+  author: 'AdrieanKhisbe',
+  authorIcon: 'https://github.com/AdrieanKhisbe.png?size=16',
+  authorLink: 'https://github.com/AdrieanKhisbe',
+  authorName: 'AdrieanKhisbe',
+  branch: 'develop',
+  committer: 'GitHub',
+  committerIcon: 'https://github.com/web-flow.png?size=16',
+  committerLink: 'https://github.com/web-flow',
+  committerName: 'GitHub',
+  owner: 'CoorpAcademy',
+  repo: 'my-repo',
+  stats: {
+    additions: 1,
+    deletions: 2,
+    total: 3
+  }
+};
 describe('lambda handler', it => {
   process.env.SLACK_TOKEN = 'slackToken';
   process.env.SLACK_CHANNEL = 'slackChannel';
@@ -268,7 +268,7 @@ describe('lambda handler', it => {
               thread_ts: 'timestamp'
             });
           },
-       // §FIXME not called since updateMessage was disabled   
+          // §FIXME not called since updateMessage was disabled
           update(params) {
             t.deepEqual(params, {
               as_user: true,
