@@ -1,6 +1,7 @@
 const {WebClient} = require('@slack/client');
 const AWS = require('aws-sdk');
 const Promise = require('bluebird');
+const request = require('request');
 const _ = require('lodash/fp');
 
 const getContext = async (environ, event, lambdaContext = {}) => {
@@ -21,6 +22,8 @@ const getContext = async (environ, event, lambdaContext = {}) => {
     environ.NODE_ENV !== 'test'
       ? Promise.promisifyAll(new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'}))
       : lambdaContext.dynamoDocClient;
+
+  const requireClient = environ.NODE_ENV !== 'test' ? request : lambdaContext.require;
 
   const web = environ.NODE_ENV !== 'test' ? new WebClient(token) : lambdaContext.slack;
 
@@ -47,6 +50,10 @@ const getContext = async (environ, event, lambdaContext = {}) => {
       dynamodbTable,
       dynamoDocClient
     },
+    github: {
+      token: environ.GITHUB_AUTH_TOKEN
+    },
+    require: requireClient,
     event: {
       event,
       projectName,
@@ -174,6 +181,68 @@ const getRecord = async context => {
   return getRecord(context);
 };
 
+const getCommitDetails = async (context, pipelineDetails) => {
+  const githubDetails = _.filter(
+    action =>
+      _.equals(action.actionTypeId, {
+        category: 'Source',
+        owner: 'ThirdParty',
+        provider: 'GitHub',
+        version: '1'
+      }),
+    _.flatMap('actions', pipelineDetails.pipeline.stages)
+  );
+  const artifactRevision = _.get(
+    'event.pipelineData.pipelineExecution.artifactRevisions[0]',
+    context
+  );
+  if (_.size(githubDetails) !== 1 || !artifactRevision || !_.has('github.token', context))
+    return null;
+  // not hanlded for now
+  const {configuration: {Branch, Owner, Repo}} = githubDetails[0];
+
+  const githubCommitDetails = await Promise.fromCallback(callback => {
+    context.request(
+      {
+        url: `https://api.github.com/repos/${Owner}/${Repo}/commits/${artifactRevision.revisionId}`,
+        headers: {
+          Authorization: `token ${context.github.token}`,
+          json: true
+        }
+      },
+      (err, response, body) => {
+        if (err) return callback(err);
+        if (response.statusCode !== 200)
+          return callback(new Error(`Status code was ${response.statusCode}`));
+        return callback(null, body);
+      }
+    );
+  });
+  // §maybe later use file too
+  const author = _.get('author.login', githubCommitDetails);
+  const authorName = _.get('commit.author.name', githubCommitDetails);
+  const authorLink = _.get('author.html_url', githubCommitDetails);
+  const authorIcon = `${authorLink}.png?size=16`;
+  const committer = _.get('commit.committer.name', githubCommitDetails);
+  const committerName = _.get('commit.committer.name', githubCommitDetails);
+  const committerLink = _.get('committer.html_url', githubCommitDetails);
+  const committerIcon = `${committerLink}.png?size=16`;
+  return {
+    owner: Owner,
+    repo: Repo,
+    branch: Branch,
+    author,
+    authorName,
+    authorLink,
+    authorIcon,
+    stats: githubCommitDetails.stats,
+    committer,
+    committerName,
+    committerLink,
+    committerIcon
+  };
+};
+
 const handleInitialMessage = async context => {
   const {aws, slack} = context;
   const {event, projectName, executionId, pipelineName, env, link} = context.event;
@@ -189,6 +258,9 @@ const handleInitialMessage = async context => {
     channel: slack.channel,
     attachments: startAttachments
   });
+  const pipelineDetails = (await aws.codepipeline.getPipelineAsync({name: pipelineName})).pipeline;
+  // §TODO only do if github token
+  const commitDetails = await getCommitDetails(context, pipelineDetails);
   await Promise.all([
     aws.dynamoDocClient.putAsync({
       TableName: aws.dynamodbTable,
@@ -198,8 +270,8 @@ const handleInitialMessage = async context => {
         slackThreadTs: slackPostedMessage.message.ts,
         originalMessage: startAttachments,
         resolvedCommit: false,
-        codepipelineDetails: (await aws.codepipeline.getPipelineAsync({name: pipelineName}))
-          .pipeline,
+        codepipelineDetails: pipelineDetails.pipeline,
+        commitDetails,
         pendingMessages: {},
         currentActions: [],
         currentStage: null,
@@ -222,6 +294,7 @@ const computeExecutionDetailsProperties = (context, record) => {
   const {codepipelineDetails, originalMessage, slackThreadTs} = record;
   const artifactRevision = pipelineData.pipelineExecution.artifactRevisions[0];
   const commitId = artifactRevision && artifactRevision.revisionId;
+  // §TODO : move up
   const shortCommitId = commitId && commitId.slice(0, 8);
   const commitMessage = artifactRevision && artifactRevision.revisionSummary;
   const commitUrl = artifactRevision && artifactRevision.revisionUrl;
@@ -524,6 +597,7 @@ exports.shouldProceed = shouldProceed;
 exports.getContext = getContext;
 exports.shouldProceed = shouldProceed;
 exports.getRecord = getRecord;
+exports.getCommitDetails = getCommitDetails;
 exports.handleInitialMessage = handleInitialMessage;
 exports.updateMainMessage = updateMainMessage;
 exports.computeExecutionDetailsProperties = computeExecutionDetailsProperties;

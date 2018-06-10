@@ -20,7 +20,8 @@
   "dependencies": {
     "@slack/client": "^4.2.2",
     "bluebird": "^3.5.1",
-    "lodash": "^4.17.10"
+    "lodash": "^4.17.10",
+    "request": "^2.87.0"
   },
   "devDependencies": {
     "@coorpacademy/eslint-plugin-coorpacademy": "^8.1.1",
