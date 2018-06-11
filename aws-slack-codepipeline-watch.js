@@ -329,7 +329,7 @@ const computeExecutionDetailsProperties = context => {
 
 const attachmentForEvent = (context, {type, stage, action, state, runOrder}) => {
   const {event: {projectName, env, link}, executionDetails: {nbActionsOfStage}} = context;
-  const fstage = stage.replace(/_/g, ' ');
+  const fstage = stage && stage.replace(/_/g, ' ');
   let title, text, color;
   if (type === 'pipeline') {
     text = `Deployment just *${state.toLowerCase()}* <${link}|🔗>`;
