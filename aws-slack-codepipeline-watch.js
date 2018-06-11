@@ -329,16 +329,17 @@ const computeExecutionDetailsProperties = context => {
 
 const attachmentForEvent = (context, {type, stage, action, state, runOrder}) => {
   const {event: {projectName, env, link}, executionDetails: {nbActionsOfStage}} = context;
+  const fstage = stage.replace(/_/g, ' ');
   let title, text, color;
   if (type === 'pipeline') {
     text = `Deployment just *${state.toLowerCase()}* <${link}|🔗>`;
     title = `${projectName} (${env})`;
     color = COLOR_CODES[state];
   } else if (type === 'stage') {
-    text = `Stage *${stage}* just *${state.toLowerCase()}*`;
+    text = `Stage *${fstage}* just *${state.toLowerCase()}*`;
     color = COLOR_CODES.pale[state];
   } else if (type === 'action') {
-    text = `> Action *${action}* _(stage *${stage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
+    text = `> Action *${action}* _(stage *${fstage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
     color = COLOR_CODES.palest[state];
   }
   return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
@@ -408,13 +409,14 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
     if (commitMessage) commitMessage.color = COLOR_CODES.pale[state];
   }
   if (type === 'stage') {
+    const fstage = stage.replace(/_/g, ' ');
     const stageMessage = {
-      SUCCEEDED: `Stage _${stage}_ succeeded, waiting for the next stage to start`,
-      RESUMED: `Stage _${stage}_ resumed, now in progress`,
-      STARTED: `Stage _${stage}_ started, now in progress`,
-      CANCELED: `Stage _${stage}_ canceled`,
-      SUPERSEDED: `Stage _${stage}_ was superseeded`,
-      FAILED: `Stage _${stage} in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
+      SUCCEEDED: `Stage *_${fstage}_* succeeded, waiting for the next stage to start`,
+      RESUMED: `Stage *_${fstage}_* resumed, now in progress`,
+      STARTED: `Stage *_${fstage}_* started, now in progress`,
+      CANCELED: `Stage *_${fstage}_* canceled`,
+      SUPERSEDED: `Stage *_${fstage}_* was superseeded`,
+      FAILED: `Stage *_${fstage}_* in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
     }[state];
     extraMessage = {
       text: stageMessage,
