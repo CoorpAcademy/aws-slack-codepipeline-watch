@@ -7,7 +7,7 @@ rm -rf node_modules
 NODE_ENV=production npm -q i 
 
 echo ">> Generating Zip file"
-zip "$zipfile" node_modules aws-slack-codepipeline-watch.js
+zip -r -q "$zipfile" node_modules aws-slack-codepipeline-watch.js
 
 echo ">> Reinstalling noode_module with dev dependencies"
 npm -q i
