@@ -148,7 +148,11 @@ const shouldProceed = (
         currentActions:
           _.size(_.get('actions', currentActions)) === 1
             ? NO_ACTIONS(false, runOrder + 1)
-            : {noStartedAction: false, runOrder, actions: _.filter(_action => _action !== action)}
+            : {
+                noStartedAction: false,
+                runOrder,
+                actions: _.filter(_action => _action !== action, currentActions.actions)
+              }
       }
     ];
   }
