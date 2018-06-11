@@ -248,7 +248,7 @@ describe('lambda handler', it => {
         }
       },
       request: (param, callback) => {
-        callback(null, {statusCode: 200}, githubCommitDetails);
+        callback(null, {statusCode: 200}, JSON.stringify(githubCommitDetails));
       },
       github: {token: 'tokenstub'},
       slack: {
@@ -289,16 +289,17 @@ describe('lambda handler', it => {
                     {
                       short: true,
                       title: 'Commit',
-                      value: '`ea42d3e8`'
+                      value:
+                        '`<https://github.com/CoorpAcademy/myrepo/commit/ea42d3e8f8696860db721b7519b8eadd8a70f270|ea42d3e8>`'
                     },
                     {
                       short: true,
                       title: 'Author',
-                      value: '_AdrieanKhisbe_'
+                      value: '_<https://github.com/AdrieanKhisbe|AdrieanKhisbe>_'
                     }
                   ],
-                  footer: '<https://github.com/CoorpAcademy/my-repo|Message Commit>',
-                  footer_icon: 'https://github.com/AdrieanKhisbe',
+                  footer: 'Message Commit',
+                  footer_icon: 'https://github.com/AdrieanKhisbe.png?size=16',
                   mrkdwn_in: ['text', 'fields']
                 },
                 {

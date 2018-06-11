@@ -7,7 +7,7 @@ describe('getCommitDetails', it => {
   it('perform a query to the github api to extract details', async t => {
     const context = {
       request: (param, callback) => {
-        callback(null, {statusCode: 200}, githubCommitDetails);
+        callback(null, {statusCode: 200}, JSON.stringify(githubCommitDetails));
       },
       github: {token: 'tokenn'},
       event: {pipelineData: {pipelineExecution: {artifactRevisions: [{revisionId: 'abcd'}]}}}

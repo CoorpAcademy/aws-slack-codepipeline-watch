@@ -37,6 +37,7 @@ describe('computeExecutionDetailsProperties', it => {
       commitId: '42424242424242',
       shortCommitId: '42424242',
       commitMessage: 'Solution to all problems',
+      commitUrl: 'gitehube',
       commitDetailsMessage: 'commit `<gitehube|42424242>`\n> Solution to all problems',
       eventCurrentStage: undefined,
       nbActionsOfStage: undefined,
@@ -90,6 +91,7 @@ describe('computeExecutionDetailsProperties', it => {
       },
       commitId: '42424242424242',
       shortCommitId: '42424242',
+      commitUrl: 'gitehube',
       commitMessage: 'Solution to all problems',
       commitDetailsMessage: 'commit `<gitehube|42424242>`\n> Solution to all problems',
       eventCurrentStage: {
