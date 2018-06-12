@@ -479,7 +479,7 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
       channel: slack.channel,
       attachments: [
         {
-          text: `🚫 Commit \`${shortCommitId}\` of *${projectName}* was denied to proceed ${link}\n\`\`\`${commitMessage}\`\`\``,
+          text: `🚫 Commit \`${shortCommitId}\` of *${projectName}* was denied to proceed <${link}|🔗>\n\`\`\`${commitMessage}\`\`\``,
           mrkdwn_in: ['text']
         }
       ],
@@ -488,6 +488,7 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
     await Promise.map(context.record.threadTimeStamp, ts =>
       slack.web.chat.delete({channel: slack.channel, ts})
     );
+    context.record.threadTimeStamp = [];
   } else if (extraMessage || context.freshCommitDetails) {
     await slack.web.chat.update({
       as_user: true,
