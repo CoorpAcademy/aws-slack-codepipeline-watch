@@ -72,6 +72,15 @@ const EVENT_TYPES = {
   'CodePipeline Action Execution State Change': 'action'
 };
 
+const ACTION_TYPE_SYMBOL = {
+  Source: '💾',
+  Build: '🛠',
+  Test: '🔬',
+  Deploy: '🚀',
+  Approval: '🗳',
+  Invoke: '📡'
+};
+
 const COLOR_CODES = {
   STARTED: '#38d',
   FAILED: '#dc143c',
@@ -338,7 +347,9 @@ const attachmentForEvent = (context, {type, stage, action, actionType, state, ru
     text = `Stage *${fstage}* just *${state.toLowerCase()}*`;
     color = COLOR_CODES.pale[state];
   } else if (type === 'action') {
-    text = `> Action *${action}* _${actionType}_ _(stage *${fstage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
+    text = `>${
+      ACTION_TYPE_SYMBOL[actionType]
+    } Action *${action}* _(stage *${fstage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
     color = COLOR_CODES.palest[state];
   }
   return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
@@ -381,10 +392,15 @@ const getCommitMessage = context => {
 };
 
 const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
-  const {slack, event: {link, pipelineData}, executionDetails: {slackThreadTs, originalMessage}} = context;
+  const {
+    slack,
+    event: {link},
+    record: {codepipelineDetails},
+    executionDetails: {slackThreadTs, originalMessage}
+  } = context;
 
-  const stageDetails = _.find({name: stage}, pipelineData.stages);
-  const actionDetails = action && _.find({name: action}, stageDetails.actions);
+  const stageDetails = _.find({name: stage}, codepipelineDetails.stages);
+  const actionDetails = stageDetails && _.find({name: action}, stageDetails.actions);
   const actionType = actionDetails && _.get('actionTypeId.category', actionDetails);
 
   const slackMessage = await slack.web.chat.postMessage({
