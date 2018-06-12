@@ -266,29 +266,28 @@ const handleInitialMessage = async context => {
   const pipelineDetails = (await aws.codepipeline.getPipelineAsync({name: pipelineName})).pipeline;
   // §TODO only do if github token
   const commitDetails = await getCommitDetails(context, pipelineDetails);
-  await Promise.all([
-    aws.dynamoDocClient.putAsync({
-      TableName: aws.dynamodbTable,
-      Item: {
-        projectName,
-        executionId,
-        slackThreadTs: slackPostedMessage.message.ts,
-        originalMessage: startAttachments,
-        codepipelineDetails: pipelineDetails,
-        commitDetails,
-        pendingMessages: {},
-        currentActions: [],
-        currentStage: null,
-        Lock: false
-      }
-    }),
-    slack.web.chat.postMessage({
-      as_user: true,
-      channel: slack.channel,
-      text: pipelineExectionMessage,
-      thread_ts: slackPostedMessage.message.ts
-    })
-  ]);
+  const slackThreadMessage = await slack.web.chat.postMessage({
+    as_user: true,
+    channel: slack.channel,
+    text: pipelineExectionMessage,
+    thread_ts: slackPostedMessage.message.ts
+  });
+  await aws.dynamoDocClient.putAsync({
+    TableName: aws.dynamodbTable,
+    Item: {
+      projectName,
+      executionId,
+      slackThreadTs: slackPostedMessage.message.ts,
+      originalMessage: startAttachments,
+      codepipelineDetails: pipelineDetails,
+      commitDetails,
+      pendingMessages: {},
+      currentActions: [],
+      currentStage: null,
+      threadTimeStamp: [slackThreadMessage.message.ts],
+      Lock: false
+    }
+  });
 
   return 'Message Acknowledge';
 };
@@ -383,12 +382,13 @@ const getCommitMessage = context => {
 
 const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
   const {slack, event: {link}, executionDetails: {slackThreadTs, originalMessage}} = context;
-  await slack.web.chat.postMessage({
+  const slackMessage = await slack.web.chat.postMessage({
     as_user: true,
     channel: slack.channel,
     attachments: attachmentForEvent(context, {type, stage, action, state, runOrder}),
     thread_ts: slackThreadTs
   });
+  context.record.threadTimeStamp.push(slackMessage.message.ts);
 
   const commitMessage = getCommitMessage(context);
   let extraMessage;
