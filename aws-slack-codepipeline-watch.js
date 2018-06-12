@@ -114,6 +114,12 @@ const getActionDetails = (stageDetails, actionName) => {
   return _.find({name: actionName}, stageDetails.actions);
 };
 
+const getStageActionTypes = (pipelineDetails, stageName) => {
+  return _.uniq(
+    _.map('actionTypeId.category', getStageDetails(pipelineDetails, stageName).actions)
+  );
+};
+
 const shouldProceed = (
   {type, stage, action, state, runOrder},
   currentStage,
@@ -335,7 +341,10 @@ const computeExecutionDetailsProperties = context => {
   };
 };
 
-const attachmentForEvent = (context, {type, stage, action, actionType, state, runOrder}) => {
+const attachmentForEvent = (
+  context,
+  {type, stage, stageActionTypes, action, actionType, state, runOrder}
+) => {
   const {event: {projectName, env, link}, executionDetails: {nbActionsOfStage}} = context;
   const fstage = stage && stage.replace(/_/g, ' ');
   let title, text, color;
@@ -344,7 +353,8 @@ const attachmentForEvent = (context, {type, stage, action, actionType, state, ru
     title = `${projectName} (${env})`;
     color = COLOR_CODES[state];
   } else if (type === 'stage') {
-    text = `Stage *${fstage}* just *${state.toLowerCase()}*`;
+    const satIcons = _.map(sat => ACTION_TYPE_SYMBOL[sat], stageActionTypes).join('');
+    text = `${satIcons} Stage *${fstage}* just *${state.toLowerCase()}*`;
     color = COLOR_CODES.pale[state];
   } else if (type === 'action') {
     text = `>${
@@ -402,11 +412,20 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
   const stageDetails = _.find({name: stage}, codepipelineDetails.stages);
   const actionDetails = stageDetails && _.find({name: action}, stageDetails.actions);
   const actionType = actionDetails && _.get('actionTypeId.category', actionDetails);
+  const stageActionTypes = stage && getStageActionTypes(codepipelineDetails, stage);
 
   const slackMessage = await slack.web.chat.postMessage({
     as_user: true,
     channel: slack.channel,
-    attachments: attachmentForEvent(context, {type, stage, action, actionType, state, runOrder}),
+    attachments: attachmentForEvent(context, {
+      type,
+      stage,
+      action,
+      stageActionTypes,
+      actionType,
+      state,
+      runOrder
+    }),
     thread_ts: slackThreadTs
   });
   context.record.threadTimeStamp.push(slackMessage.message.ts);
@@ -430,6 +449,7 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
     if (commitMessage) commitMessage.color = COLOR_CODES.pale[state];
   }
   if (type === 'stage') {
+    const satIcons = _.map(sat => ACTION_TYPE_SYMBOL[sat], stageActionTypes).join('');
     const fstage = stage.replace(/_/g, ' ');
     const stageMessage = {
       SUCCEEDED: `Stage *_${fstage}_* succeeded, waiting for the next stage to start`,
@@ -440,7 +460,7 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
       FAILED: `Stage *_${fstage}_* in *Failed* Status\nYou can perform a restart <${link}|there 🔗>`
     }[state];
     extraMessage = {
-      text: stageMessage,
+      text: `${satIcons} ${stageMessage}`,
       mrkdwn_in: ['text'],
       color: COLOR_CODES.palest[state]
     };
