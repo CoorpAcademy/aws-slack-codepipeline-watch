@@ -120,6 +120,12 @@ const getStageActionTypes = (pipelineDetails, stageName) => {
   );
 };
 
+const getActionType = (pipelineDetails, stage, action) => {
+  const stageDetails = _.find({name: stage}, pipelineDetails.stages);
+  const actionDetails = stageDetails && _.find({name: action}, stageDetails.actions);
+  return actionDetails && _.get('actionTypeId.category', actionDetails);
+};
+
 const shouldProceed = (
   {type, stage, action, state, runOrder},
   currentStage,
@@ -430,7 +436,6 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
     thread_ts: slackThreadTs
   });
   context.record.threadTimeStamp.push(slackMessage.message.ts);
-  if (actionType) context.record.lastActionType = actionType;
 
   const commitMessage = getCommitMessage(context);
   let extraMessage;
@@ -548,6 +553,14 @@ const handlePendingMessages = async (
     );
     if (!(_eventSummary.type === 'action' && _.size(_.get('actions', eventAssociatedStage)) <= 1))
       await handleEvent(context, _eventSummary);
+
+    context.record.lastActionType =
+      getActionType(
+        context.record.codepipelineDetails,
+        _eventSummary.stage,
+        _eventSummary.action
+      ) || context.record.lastActionType;
+
     if (_.size(pendingEvents) === 1)
       return {
         pendingEvents,
@@ -643,6 +656,9 @@ exports.handler = async (event, lambdaContext) => {
     update.currentActions,
     _.set('currentStage', update.currentStage, context.record)
   );
+  context.record.lastActionType =
+    getActionType(context.record.codepipelineDetails, stage, action) ||
+    context.record.lastActionType;
 
   if (
     guard &&
@@ -658,6 +674,7 @@ exports.handler = async (event, lambdaContext) => {
       runOrder: context.executionDetails.eventCurrentOrder
     });
   }
+
 
   await handlePendingMessages(
     context,
