@@ -326,7 +326,7 @@ const computeExecutionDetailsProperties = context => {
   };
 };
 
-const attachmentForEvent = (context, {type, stage, action, state, runOrder}) => {
+const attachmentForEvent = (context, {type, stage, action, actionType, state, runOrder}) => {
   const {event: {projectName, env, link}, executionDetails: {nbActionsOfStage}} = context;
   const fstage = stage && stage.replace(/_/g, ' ');
   let title, text, color;
@@ -338,7 +338,7 @@ const attachmentForEvent = (context, {type, stage, action, state, runOrder}) => 
     text = `Stage *${fstage}* just *${state.toLowerCase()}*`;
     color = COLOR_CODES.pale[state];
   } else if (type === 'action') {
-    text = `> Action *${action}* _(stage *${fstage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
+    text = `> Action *${action}* _${actionType}_ _(stage *${fstage}* *[${runOrder}/${nbActionsOfStage}]*)_ just *${state.toLowerCase()}*`;
     color = COLOR_CODES.palest[state];
   }
   return [{title, text, color: color || '#dddddd', mrkdwn_in: ['text']}];
@@ -381,11 +381,16 @@ const getCommitMessage = context => {
 };
 
 const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
-  const {slack, event: {link}, executionDetails: {slackThreadTs, originalMessage}} = context;
+  const {slack, event: {link, pipelineData}, executionDetails: {slackThreadTs, originalMessage}} = context;
+
+  const stageDetails = _.find({name: stage}, pipelineData.stages);
+  const actionDetails = action && _.find({name: action}, stageDetails.actions);
+  const actionType = actionDetails && _.get('actionTypeId.category', actionDetails);
+
   const slackMessage = await slack.web.chat.postMessage({
     as_user: true,
     channel: slack.channel,
-    attachments: attachmentForEvent(context, {type, stage, action, state, runOrder}),
+    attachments: attachmentForEvent(context, {type, stage, action, actionType, state, runOrder}),
     thread_ts: slackThreadTs
   });
   context.record.threadTimeStamp.push(slackMessage.message.ts);
