@@ -411,9 +411,9 @@ const getCommitMessage = context => {
 const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
   const {
     slack,
-    event: {link},
+    event: {projectName, link},
     record: {codepipelineDetails},
-    executionDetails: {slackThreadTs, originalMessage}
+    executionDetails: {slackThreadTs, originalMessage, shortCommitId, commitMessage}
   } = context;
 
   const stageDetails = _.find({name: stage}, codepipelineDetails.stages);
@@ -437,7 +437,7 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
   });
   context.record.threadTimeStamp.push(slackMessage.message.ts);
 
-  const commitMessage = getCommitMessage(context);
+  const commitAttachement = getCommitMessage(context);
   let extraMessage;
   // Update pipeline on treated messages
   if (type === 'pipeline') {
@@ -453,7 +453,7 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
       mrkdwn_in: ['text'],
       color: COLOR_CODES[state]
     };
-    if (commitMessage) commitMessage.color = COLOR_CODES.pale[state];
+    if (commitAttachement) commitAttachement.color = COLOR_CODES.pale[state];
   }
   if (type === 'stage') {
     const satIcons = _.map(sat => ACTION_TYPE_SYMBOL[sat], stageActionTypes).join('');
@@ -473,22 +473,26 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
     };
   }
 
-  if (state === 'FAILED' && context.record.lastActionType === 'Approval') {
-    // §TODO Message clean up
+  if (state === 'FAILED' && type === 'pipeline' && context.record.lastActionType === 'Approval') {
     await slack.web.chat.update({
       as_user: true,
       channel: slack.channel,
       attachments: [
-        {text: 'DENIED'},
-        {text: `About to kill ${context.record.threadTimeStamp.join(',')}`}
+        {
+          text: `🚫 Commit \`${shortCommitId}\` of *${projectName}* was denied to proceed ${link}\n\`\`\`${commitMessage}\`\`\``,
+          mrkdwn_in: ['text']
+        }
       ],
       ts: slackThreadTs
     });
+    await Promise.map(context.record.threadTimeStamp, ts =>
+      slack.web.chat.delete({channel: slack.channel, ts})
+    );
   } else if (extraMessage || context.freshCommitDetails) {
     await slack.web.chat.update({
       as_user: true,
       channel: slack.channel,
-      attachments: _.compact([...originalMessage, commitMessage, extraMessage]),
+      attachments: _.compact([...originalMessage, commitAttachement, extraMessage]),
       ts: slackThreadTs
     });
   }
@@ -674,7 +678,6 @@ exports.handler = async (event, lambdaContext) => {
       runOrder: context.executionDetails.eventCurrentOrder
     });
   }
-
 
   await handlePendingMessages(
     context,
