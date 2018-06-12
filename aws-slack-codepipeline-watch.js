@@ -468,7 +468,18 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
     };
   }
 
-  if (extraMessage || context.freshCommitDetails) {
+  if (state === 'FAILED' && context.record.lastActionType === 'Approval') {
+    // §TODO Message clean up
+    await slack.web.chat.update({
+      as_user: true,
+      channel: slack.channel,
+      attachments: [
+        {text: 'DENIED'},
+        {text: `About to kill ${context.record.threadTimeStamp.join(',')}`}
+      ],
+      ts: slackThreadTs
+    });
+  } else if (extraMessage || context.freshCommitDetails) {
     await slack.web.chat.update({
       as_user: true,
       channel: slack.channel,
