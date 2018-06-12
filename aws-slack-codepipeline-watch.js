@@ -299,6 +299,7 @@ const handleInitialMessage = async context => {
       pendingMessages: {},
       currentActions: [],
       currentStage: null,
+      lastActionType: null,
       threadTimeStamp: [slackThreadMessage.message.ts],
       Lock: false
     }
@@ -429,6 +430,7 @@ const handleEvent = async (context, {type, stage, action, state, runOrder}) => {
     thread_ts: slackThreadTs
   });
   context.record.threadTimeStamp.push(slackMessage.message.ts);
+  if (actionType) context.record.lastActionType = actionType;
 
   const commitMessage = getCommitMessage(context);
   let extraMessage;
