@@ -1,10 +1,11 @@
 const {describe} = require('ava-spec');
 const Promise = require('bluebird');
 const {handleEvent} = require('../aws-slack-codepipeline-watch');
+const codepipelineData = require('./fixtures/codepipeline-data');
 
 describe('handleEvent', it => {
   it('handle pipeline message', async t => {
-    t.plan(6);
+    t.plan(7);
     const originalMessage = [{text: 'toto'}];
     const context = {
       event: {
@@ -13,7 +14,10 @@ describe('handleEvent', it => {
         link:
           'https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/codepipeline-test'
       },
-      record: {},
+      record: {
+        codepipelineDetails: codepipelineData.pipeline,
+        threadTimeStamp: ['some-ts']
+      },
       executionDetails: {
         commitId: '42',
         commitDetailsMessage: 'co co commit',
@@ -36,7 +40,7 @@ describe('handleEvent', it => {
                   title: 'test (production)'
                 }
               ]);
-              return Promise.resolve();
+              return Promise.resolve({message: {ts: 'yats'}});
             },
             update(params) {
               t.is(params.channel, '#deploys-channel-id');
@@ -65,9 +69,10 @@ describe('handleEvent', it => {
       pipeline: 'test',
       state: 'SUCCEEDED'
     });
+    t.deepEqual(context.record.threadTimeStamp, ['some-ts', 'yats']);
   });
   it('handle stage message', async t => {
-    t.plan(5);
+    t.plan(6);
     const originalMessage = [{text: 'toto'}];
     const context = {
       event: {
@@ -75,6 +80,10 @@ describe('handleEvent', it => {
         env: 'production',
         link:
           'https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/codepipeline-test'
+      },
+      record: {
+        codepipelineDetails: codepipelineData.pipeline,
+        threadTimeStamp: ['some-ts']
       },
       executionDetails: {
         commitId: '4444',
@@ -93,11 +102,11 @@ describe('handleEvent', it => {
                 {
                   color: '#36a94b',
                   mrkdwn_in: ['text'],
-                  text: 'Stage *secondStage* just *succeeded*',
+                  text: '🛠 Stage *Install* just *succeeded*',
                   title: undefined
                 }
               ]);
-              return Promise.resolve();
+              return Promise.resolve({message: {ts: 'yats'}});
             },
             update(params) {
               t.deepEqual(params, {
@@ -114,7 +123,7 @@ describe('handleEvent', it => {
                   {
                     color: '#54c869',
                     mrkdwn_in: ['text'],
-                    text: 'Stage _secondStage_ succeeded, waiting for the next stage to start'
+                    text: '🛠 Stage *_Install_* succeeded, waiting for the next stage to start'
                   }
                 ],
                 channel: '#deploys-channel-id',
@@ -130,12 +139,13 @@ describe('handleEvent', it => {
       type: 'stage',
       pipeline: 'test',
       state: 'SUCCEEDED',
-      stage: 'secondStage'
+      stage: 'Install'
     });
     t.not(res, true);
+    t.deepEqual(context.record.threadTimeStamp, ['some-ts', 'yats']);
   });
   it('handle action message', async t => {
-    t.plan(4);
+    t.plan(5);
     const originalMessage = [{text: 'toto'}];
     const context = {
       event: {
@@ -150,6 +160,10 @@ describe('handleEvent', it => {
         originalMessage,
         nbActionsOfStage: 2
       },
+      record: {
+        codepipelineDetails: codepipelineData.pipeline,
+        threadTimeStamp: ['some-ts']
+      },
       slack: {
         channel: '#deploys-channel-id',
         web: {
@@ -161,11 +175,11 @@ describe('handleEvent', it => {
                 {
                   color: '#54c869',
                   mrkdwn_in: ['text'],
-                  text: '> Action *secondAction* _(stage *secondStage* *[2/2]*)_ just *succeeded*',
+                  text: '>🛠 Action *Install* _(stage *Install* *[2/2]*)_ just *succeeded*',
                   title: undefined
                 }
               ]);
-              return Promise.resolve();
+              return Promise.resolve({message: {ts: 'yats'}});
             },
             update(params) {
               t.fail();
@@ -179,10 +193,11 @@ describe('handleEvent', it => {
       type: 'action',
       pipeline: 'test',
       state: 'SUCCEEDED',
-      stage: 'secondStage',
-      action: 'secondAction',
+      stage: 'Install',
+      action: 'Install',
       runOrder: 2
     });
+    t.deepEqual(context.record.threadTimeStamp, ['some-ts', 'yats'])
     t.not(res, true);
   });
 });

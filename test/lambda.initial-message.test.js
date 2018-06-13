@@ -46,7 +46,7 @@ describe('handleInitialMessage', it => {
                   params.text,
                   '`execution-id`: <https://eu-west-1.console.aws.amazon.com/codepipeline/home?region=eu-west-1#/view/codepipeline-test/history|eid>'
                 );
-                return Promise.resolve();
+                return Promise.resolve({message: {ts: 'eid-ts'}});
               } else {
                 originalMessage = params.attachments;
                 t.deepEqual(params.attachments, [

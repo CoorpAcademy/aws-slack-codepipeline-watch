@@ -99,6 +99,7 @@ describe('lambda handler', it => {
               commitDetails: null,
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: [],
+              lastActionType: null,
               currentStage: null,
               executionId: '01234567-0123-0123-0123-012345678901',
               originalMessage: [
@@ -112,7 +113,8 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              slackThreadTs: 'timestamp'
+              slackThreadTs: 'timestamp',
+              threadTimeStamp: ['timestamp']
             }
           });
         }
@@ -142,8 +144,8 @@ describe('lambda handler', it => {
                 ],
                 channel: 'slackChannel'
               });
-              return Promise.resolve({message: {ts: 'timestamp'}});
             }
+            return Promise.resolve({message: {ts: 'timestamp'}});
           }
         }
       }
@@ -155,6 +157,7 @@ describe('lambda handler', it => {
 
   it('process correctly another stage message, the first with commit', async t => {
     t.plan(6);
+    process.env.GITHUB_AUTH_TOKEN = 'tokenstub';
     const event = {
       version: '0',
       id: 'CWE-event-id',
@@ -199,6 +202,7 @@ describe('lambda handler', it => {
               currentActions: {actions: [], noStartedAction: true, runOrder: 1},
               currentStage: 'Tests',
               executionId: '01234567-0123-0123-0123-012345678901',
+              lastActionType: undefined,
               originalMessage: [
                 {
                   color: '#38d',
@@ -210,7 +214,8 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              slackThreadTs: 'timestamp'
+              slackThreadTs: 'timestamp',
+              threadTimeStamp: ['some-ts', 'timestamp']
             }
           });
         },
@@ -242,7 +247,8 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              slackThreadTs: 'timestamp'
+              slackThreadTs: 'timestamp',
+              threadTimeStamp: ['some-ts']
             }
           });
         }
@@ -250,7 +256,6 @@ describe('lambda handler', it => {
       request: (param, callback) => {
         callback(null, {statusCode: 200}, JSON.stringify(githubCommitDetails));
       },
-      github: {token: 'tokenstub'},
       slack: {
         chat: {
           postMessage(params) {
@@ -260,13 +265,14 @@ describe('lambda handler', it => {
                 {
                   color: '#4d90d4',
                   mrkdwn_in: ['text'],
-                  text: 'Stage *Tests* just *started*',
+                  text: '🔬 Stage *Tests* just *started*',
                   title: undefined
                 }
               ],
               channel: 'slackChannel',
               thread_ts: 'timestamp'
             });
+            return Promise.resolve({message: {ts: 'timestamp'}})
           },
           // §FIXME not called since updateMessage was disabled
           update(params) {
@@ -305,7 +311,7 @@ describe('lambda handler', it => {
                 {
                   color: '#6a9fd4',
                   mrkdwn_in: ['text'],
-                  text: 'Stage _Tests_ started, now in progress'
+                  text: '🔬 Stage *_Tests_* started, now in progress'
                 }
               ],
               channel: 'slackChannel',
@@ -367,6 +373,7 @@ describe('lambda handler', it => {
               currentActions: {actions: [], noStartedAction: true, runOrder: 1},
               currentStage: 'Tests',
               executionId: '01234567-0123-0123-0123-012345678901',
+              lastActionType: 'Test',
               originalMessage: [
                 {
                   color: '#38d',
@@ -510,6 +517,7 @@ describe('lambda handler', it => {
               codepipelineDetails: codepipelineData.pipeline,
               currentActions: {actions: [], noStartedAction: false, runOrder: 2},
               currentStage: 'Tests',
+              lastActionType: 'Test',
               executionId: '01234567-0123-0123-0123-012345678901',
               originalMessage: [
                 {
@@ -522,7 +530,8 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              slackThreadTs: 'timestamp'
+              slackThreadTs: 'timestamp',
+              threadTimeStamp: ['some-ts', 'yats-1', 'yats-2']
             }
           });
         },
@@ -555,7 +564,8 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {'action:SUCCEEDED:Tests:Lint:1': '2017-04-22T03:31:47Z'},
               projectName: 'test',
-              slackThreadTs: 'timestamp'
+              slackThreadTs: 'timestamp',
+              threadTimeStamp: ['some-ts']
             }
           });
         }
@@ -572,7 +582,7 @@ describe('lambda handler', it => {
                   {
                     color: '#6a9fd4',
                     mrkdwn_in: ['text'],
-                    text: '> Action *Lint* _(stage *Tests* *[1/2]*)_ just *started*',
+                    text: '>🔬 Action *Lint* _(stage *Tests* *[1/2]*)_ just *started*',
                     title: undefined
                   }
                 ],
@@ -586,7 +596,7 @@ describe('lambda handler', it => {
                   {
                     color: '#54c869',
                     mrkdwn_in: ['text'],
-                    text: '> Action *Lint* _(stage *Tests* *[1/2]*)_ just *succeeded*',
+                    text: '>🔬 Action *Lint* _(stage *Tests* *[1/2]*)_ just *succeeded*',
                     title: undefined
                   }
                 ],
@@ -594,6 +604,7 @@ describe('lambda handler', it => {
                 thread_ts: 'timestamp'
               });
             }
+            return Promise.resolve({message: {ts: `yats-${nbCallSlackPost}`}})
           },
           update(params) {
             t.fail();
@@ -642,6 +653,7 @@ describe('lambda handler', it => {
           return Promise.resolve(codepipelineData);
         }
       },
+      github: {token: 'tokenstub'},
       dynamoDocClient: {
         putAsync(params) {
           t.deepEqual(params, {
@@ -653,6 +665,7 @@ describe('lambda handler', it => {
               currentActions: {actions: ['Tests'], noStartedAction: false, runOrder: 2},
               currentStage: 'Tests',
               executionId: '01234567-0123-0123-0123-012345678901',
+              lastActionType: 'Test',
               originalMessage: [
                 {
                   color: '#38d',
@@ -664,11 +677,11 @@ describe('lambda handler', it => {
               ],
               pendingMessages: {},
               projectName: 'test',
-              slackThreadTs: 'timestamp'
+              slackThreadTs: 'timestamp',
+              threadTimeStamp: ['some-ts', 'ts-1', 'ts-2', 'ts-3']
             }
           });
         },
-        github: {token: 'tokenstub'},
         updateAsync(params) {
           t.deepEqual(params, {
             TableName: 'dynamoTable',
@@ -701,7 +714,8 @@ describe('lambda handler', it => {
                 'action:SUCCEEDED:Tests:Lint:1': '2017-04-22T03:31:47Z'
               },
               projectName: 'test',
-              slackThreadTs: 'timestamp'
+              slackThreadTs: 'timestamp',
+              threadTimeStamp: ['some-ts']
             }
           });
         }
@@ -717,7 +731,7 @@ describe('lambda handler', it => {
                   {
                     color: '#6a9fd4',
                     mrkdwn_in: ['text'],
-                    text: '> Action *Lint* _(stage *Tests* *[1/2]*)_ just *started*',
+                    text: '>🔬 Action *Lint* _(stage *Tests* *[1/2]*)_ just *started*',
                     title: undefined
                   }
                 ],
@@ -731,7 +745,7 @@ describe('lambda handler', it => {
                   {
                     color: '#54c869',
                     mrkdwn_in: ['text'],
-                    text: '> Action *Lint* _(stage *Tests* *[1/2]*)_ just *succeeded*',
+                    text: '>🔬 Action *Lint* _(stage *Tests* *[1/2]*)_ just *succeeded*',
                     title: undefined
                   }
                 ],
@@ -745,7 +759,7 @@ describe('lambda handler', it => {
                   {
                     color: '#6a9fd4',
                     mrkdwn_in: ['text'],
-                    text: '> Action *Tests* _(stage *Tests* *[2/2]*)_ just *started*',
+                    text: '>🔬 Action *Tests* _(stage *Tests* *[2/2]*)_ just *started*',
                     title: undefined
                   }
                 ],
@@ -753,6 +767,7 @@ describe('lambda handler', it => {
                 thread_ts: 'timestamp'
               });
             }
+            return Promise.resolve({message: {ts: `ts-${nbCallSlackPost}`}});
           },
           update(params) {
             t.fail();
