@@ -17,7 +17,106 @@ functions:
       SLACK_TOKEN: ${env:SLACK_TOKEN}
       SLACK_CHANNEL: ${env:SLACK_CHANNEL}
       GITHUB_AUTH_TOKEN: ${env:GITHUB_AUTH_TOKEN}
-      DYNAMO_TABLE: ${env:DYNAMO_TABLE}
+      DYNAMO_TABLE:
+        Ref: DynamoTable
 
 resources:
   Description: Cloudformation for the Codepipeline Watch App
+  Resources:
+    DynamoTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: codepipeline-watch-events
+        AttributeDefinitions:
+          - AttributeName: projectName
+            AttributeType: S
+          - AttributeName: executionId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: projectName
+            KeyType: HASH
+          - AttributeName: executionId
+            KeyType: RANGE
+        ProvisionedThroughput: # §todo: make it configurable
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        # No TTL §TODO: add some
+        Tags:
+          - Key: Name
+            Value: codepipeline-watch-events
+    WriteCapacityScalableTarget:
+      Type: AWS::ApplicationAutoScaling::ScalableTarget
+      Properties:
+        MaxCapacity: 25
+        MinCapacity: 5
+        ResourceId:
+          Fn::Join: ["/", [table, {Ref: DynamoTable}]]
+        RoleARN:
+          Fn::GetAtt: ScalingRole.Arn
+        ScalableDimension: dynamodb:table:WriteCapacityUnits
+        ServiceNamespace: dynamodb
+    ReadCapacityScalableTarget:
+      Type: AWS::ApplicationAutoScaling::ScalableTarget
+      Properties:
+        MaxCapacity: 25
+        MinCapacity: 5
+        ResourceId:
+          Fn::Join: ["/", [table, {Ref: DynamoTable}]]
+        RoleARN:
+          Fn::GetAtt: ScalingRole.Arn
+        ScalableDimension: dynamodb:table:ReadCapacityUnits
+        ServiceNamespace: dynamodb
+    ScalingRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal:
+                Service:
+                  - application-autoscaling.amazonaws.com
+              Action:
+                - "sts:AssumeRole"
+        Path: "/"
+        Policies:
+          - PolicyName: "root"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: "Allow"
+                  Action:
+                    - "dynamodb:DescribeTable"
+                    - "dynamodb:UpdateTable"
+                    - "cloudwatch:PutMetricAlarm"
+                    - "cloudwatch:DescribeAlarms"
+                    - "cloudwatch:GetMetricStatistics"
+                    - "cloudwatch:SetAlarmState"
+                    - "cloudwatch:DeleteAlarms"
+                  Resource: "*"
+    WriteScalingPolicy:
+      Type: "AWS::ApplicationAutoScaling::ScalingPolicy"
+      Properties:
+        PolicyName: WriteAutoScalingPolicy
+        PolicyType: TargetTrackingScaling
+        ScalingTargetId:
+          Ref: WriteCapacityScalableTarget
+        TargetTrackingScalingPolicyConfiguration:
+          TargetValue: 80
+          ScaleInCooldown: 60
+          ScaleOutCooldown: 60
+          PredefinedMetricSpecification:
+            PredefinedMetricType: DynamoDBWriteCapacityUtilization
+    ReadScalingPolicy:
+      Type: "AWS::ApplicationAutoScaling::ScalingPolicy"
+      Properties:
+        PolicyName: ReadAutoScalingPolicy
+        PolicyType: TargetTrackingScaling
+        ScalingTargetId:
+          Ref: ReadCapacityScalableTarget
+        TargetTrackingScalingPolicyConfiguration:
+          TargetValue: 80
+          ScaleInCooldown: 60
+          ScaleOutCooldown: 60
+          PredefinedMetricSpecification:
+            PredefinedMetricType: DynamoDBReadCapacityUtilization
