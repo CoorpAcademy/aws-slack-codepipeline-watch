@@ -19,6 +19,11 @@ functions:
       GITHUB_AUTH_TOKEN: ${env:GITHUB_AUTH_TOKEN}
       DYNAMO_TABLE:
         Ref: DynamoTable
+    events:
+      - cloudwatchEvent:
+          event:
+            source:
+              - "aws.codepipeline"
 
 resources:
   Description: Cloudformation for the Codepipeline Watch App
