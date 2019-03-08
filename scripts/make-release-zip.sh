@@ -1,7 +1,8 @@
 #!/bin/bash
 
+mkdir -p release
 current_commit="$(git rev-parse --short HEAD)"
-zipfile="aws-slack-codepipeline-watch-release-${1:-$current_commit}.zip"
+zipfile="release/aws-slack-codepipeline-watch-release-${1:-$current_commit}.zip"
 echo ">> Installing node_module production"
 rm -rf node_modules
 NODE_ENV=production npm -q i 
