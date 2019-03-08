@@ -1,0 +1,23 @@
+service: codepipeline-watch
+
+provider:
+  name: aws
+  stage: production
+  runtime: nodejs8.10
+  region: eu-west-1 # §todo: make it configurable
+
+functions:
+
+  codepipeline-watch:
+    handler: lambda/aws-slack-codepipeline-watch.handler
+    name: codepipeline-watch
+    memorySize: 128
+    timeout: 60
+    environment:
+      SLACK_TOKEN: ${env:SLACK_TOKEN}
+      SLACK_CHANNEL: ${env:SLACK_CHANNEL}
+      GITHUB_AUTH_TOKEN: ${env:GITHUB_AUTH_TOKEN}
+      DYNAMO_TABLE: ${env:DYNAMO_TABLE}
+
+resources:
+  Description: Cloudformation for the Codepipeline Watch App
