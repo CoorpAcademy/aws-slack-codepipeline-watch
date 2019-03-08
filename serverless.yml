@@ -11,6 +11,7 @@ functions:
   codepipeline-watch:
     handler: lambda/aws-slack-codepipeline-watch.handler
     name: codepipeline-watch
+    role: CodepipelineWatchLambdaRole
     memorySize: 128
     timeout: 60
     environment:
@@ -125,3 +126,37 @@ resources:
           ScaleOutCooldown: 60
           PredefinedMetricSpecification:
             PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+    CodepipelineWatchLambdaRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: codepipeline-watch-access-role
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AWSCodePipelineReadOnlyAccess
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        Policies:   # (details see: https://serverless.com/framework/docs/providers/aws/guide/iam/)
+          - PolicyName: access-to-dynamodb-table
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Resource:
+                  - 'Fn::Join':
+                    - ':'
+                    -
+                      - 'arn:aws:dynamodb'
+                      - Ref: 'AWS::Region'
+                      - Ref: 'AWS::AccountId'
+                      - table/codepipeline-watch-events
+                  Action:
+                    - "dynamodb:Get*"
+                    - "dynamodb:Update*"
+                    - "dynamodb:PutItem"
+                  Effect: Allow
