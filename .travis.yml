@@ -4,6 +4,7 @@ node_js:
 script:
   - npm run lint || true
   - npm run cover
+  - npm run serverless package
 
 after_script:
   - npm run publish-coverage
