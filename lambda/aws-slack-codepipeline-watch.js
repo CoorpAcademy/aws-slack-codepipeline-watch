@@ -3,6 +3,7 @@ const AWS = require('aws-sdk');
 const request = require('request');
 const _ = require('lodash/fp');
 const wait = require('delay');
+const pRetry = require('p-retry');
 
 const getContext = async (environ, event, lambdaContext = {}) => {
   const token = environ.SLACK_TOKEN;
@@ -107,6 +108,8 @@ const COLOR_CODES = {
     RESUMED: '#a2f5c5'
   }
 };
+
+const N_RETRIES = 5;
 
 const getStageDetails = (pipelineDetails, stageName) => {
   return _.find({name: stageName}, pipelineDetails.stages);
@@ -299,25 +302,29 @@ const handleInitialMessage = async context => {
     text: pipelineExectionMessage,
     thread_ts: slackPostedMessage.message.ts
   });
-  await aws.dynamoDocClient
-    .put({
-      TableName: aws.dynamodbTable,
-      Item: {
-        projectName,
-        executionId,
-        slackThreadTs: slackPostedMessage.message.ts,
-        originalMessage: startAttachments,
-        codepipelineDetails: pipelineDetails,
-        commitDetails,
-        pendingMessages: {},
-        currentActions: [],
-        currentStage: null,
-        lastActionType: null,
-        threadTimeStamp: [slackThreadMessage.message.ts],
-        Lock: false
-      }
-    })
-    .promise();
+  await pRetry(
+    () =>
+      aws.dynamoDocClient
+        .put({
+          TableName: aws.dynamodbTable,
+          Item: {
+            projectName,
+            executionId,
+            slackThreadTs: slackPostedMessage.message.ts,
+            originalMessage: startAttachments,
+            codepipelineDetails: pipelineDetails,
+            commitDetails,
+            pendingMessages: {},
+            currentActions: [],
+            currentStage: null,
+            lastActionType: null,
+            threadTimeStamp: [slackThreadMessage.message.ts],
+            Lock: false
+          }
+        })
+        .promise(),
+    {retries: N_RETRIES}
+  );
 
   return 'Message Acknowledge';
 };
@@ -698,12 +705,16 @@ exports.handler = async (event, lambdaContext) => {
   );
 
   // Update and Lock Release
-  await aws.dynamoDocClient
-    .put({
-      TableName: aws.dynamodbTable,
-      Item: _.set('Lock', false, context.record)
-    })
-    .promise();
+  await pRetry(
+    () =>
+      aws.dynamoDocClient
+        .put({
+          TableName: aws.dynamodbTable,
+          Item: _.set('Lock', false, context.record)
+        })
+        .promise(),
+    {retries: 5}
+  );
 
   return 'Acknoledge Event';
 };
