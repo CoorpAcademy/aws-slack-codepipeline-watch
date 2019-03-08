@@ -23,6 +23,8 @@ functions:
     events:
       - cloudwatchEvent:
           event:
+            name: CodepipelineWatchCloudwatchEventTrigger
+            description: "Event triggering CodepipelineWatch from codepipeline events"
             source:
               - "aws.codepipeline"
 
