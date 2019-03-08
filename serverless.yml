@@ -1,10 +1,11 @@
 service: codepipeline-watch
 
 provider:
+  stackName: ${opt:stack-name, "codepipeline-watch-${opt:stage, 'production'}"}
   name: aws
-  stage: production
+  stage: ${opt:stage, 'production'}
   runtime: nodejs8.10
-  region: eu-west-1 # §todo: make it configurable
+  region: ${opt:region, 'eu-west-1'}
 
 custom:
   config:
@@ -13,6 +14,9 @@ custom:
       token: ${env:SLACK_TOKEN}
     github:
       token: ${env:GITHUB_AUTH_TOKEN}
+    dynamodb:
+      table: ${env:DYNAMODB_TABLE, 'codepipeline-watch-events'}
+      # §todo: more config to be added
 
 functions:
 
@@ -34,7 +38,7 @@ functions:
           description: "Event triggering CodepipelineWatch from codepipeline events"
           event:
             source:
-              - "aws.codepipeline"
+              - aws.codepipeline
 
 resources:
   Description: Cloudformation for the Codepipeline Watch App
@@ -42,7 +46,7 @@ resources:
     DynamoTable:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: codepipeline-watch-events
+        TableName: ${self:custom.config.dynamodb.table}
         AttributeDefinitions:
           - AttributeName: projectName
             AttributeType: S
@@ -59,7 +63,7 @@ resources:
         # No TTL §TODO: add some
         Tags:
           - Key: Name
-            Value: codepipeline-watch-events
+            Value: ${self:custom.config.dynamodb.table}
     WriteCapacityScalableTarget:
       Type: AWS::ApplicationAutoScaling::ScalableTarget
       Properties:
@@ -85,7 +89,7 @@ resources:
     ScalingRole:
       Type: AWS::IAM::Role
       Properties:
-        RoleName: CodepipelineWatchDynamodbScalingRole
+        RoleName: CodepipelineWatchDynamodbScalingRoleFor${self:provider.region}
         AssumeRolePolicyDocument:
           Version: "2012-10-17"
           Statement:
@@ -141,7 +145,7 @@ resources:
     CodepipelineWatchLambdaRole:
       Type: AWS::IAM::Role
       Properties:
-        RoleName: CodepipelineWatchAccessRole
+        RoleName: CodepipelineWatchAccessRoleFor${self:provider.region}
         AssumeRolePolicyDocument:
           Version: "2012-10-17"
           Statement:
@@ -165,7 +169,7 @@ resources:
                       - 'arn:aws:dynamodb'
                       - Ref: 'AWS::Region'
                       - Ref: 'AWS::AccountId'
-                      - table/codepipeline-watch-events
+                      - table/${self:custom.config.dynamodb.table}
                   Action:
                     - "dynamodb:Get*"
                     - "dynamodb:Update*"
