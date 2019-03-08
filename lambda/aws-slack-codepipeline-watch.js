@@ -16,11 +16,11 @@ const getContext = async (environ, event, lambdaContext = {}) => {
 
   const codepipeline =
     environ.NODE_ENV !== 'test'
-      ? Promise.promisifyAll(new AWS.CodePipeline({apiVersion: '2015-07-09'}))
+      ? new AWS.CodePipeline({apiVersion: '2015-07-09'})
       : lambdaContext.codepipeline;
   const dynamoDocClient =
     environ.NODE_ENV !== 'test'
-      ? Promise.promisifyAll(new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'}))
+      ? new AWS.DynamoDB.DocumentClient({apiVersion: '2012-08-10'})
       : lambdaContext.dynamoDocClient;
 
   const requestClient = environ.NODE_ENV !== 'test' ? request : lambdaContext.request;
@@ -30,10 +30,12 @@ const getContext = async (environ, event, lambdaContext = {}) => {
   const pipelineName = _.get('detail.pipeline', event);
   const pipelineExecutionId = _.get('detail.execution-id', event);
 
-  const pipelineData = await codepipeline.getPipelineExecutionAsync({
-    pipelineExecutionId,
-    pipelineName
-  });
+  const pipelineData = await codepipeline
+    .getPipelineExecution({
+      pipelineExecutionId,
+      pipelineName
+    })
+    .promise();
   // §TODO try to generalize that
   const env = /staging/.test(pipelineName) ? 'staging' : 'production';
   const projectName = /codepipeline-(.*)/.exec(pipelineName)[1];
@@ -197,10 +199,13 @@ const getRecord = async context => {
     ExpressionAttributeValues: {':lock': true, ':unlocked': false},
     ReturnValues: 'ALL_NEW'
   };
-  const updateRecord = await aws.dynamoDocClient.updateAsync(params).catch(err => {
-    // §TODO catch error type to distinguish ConditionFailed de Throughput
-    return {};
-  });
+  const updateRecord = await aws.dynamoDocClient
+    .update(params)
+    .promise()
+    .catch(err => {
+      // §TODO catch error type to distinguish ConditionFailed de Throughput
+      return {};
+    });
   if (updateRecord.Attributes) return updateRecord.Attributes;
   await Promise.delay(500);
   return getRecord(context);
@@ -284,7 +289,8 @@ const handleInitialMessage = async context => {
     channel: slack.channel,
     attachments: startAttachments
   });
-  const pipelineDetails = (await aws.codepipeline.getPipelineAsync({name: pipelineName})).pipeline;
+  const pipelineDetails = (await aws.codepipeline.getPipeline({name: pipelineName}).promise())
+    .pipeline;
   // §TODO only do if github token
   const commitDetails = await getCommitDetails(context, pipelineDetails);
   const slackThreadMessage = await slack.web.chat.postMessage({
@@ -293,23 +299,25 @@ const handleInitialMessage = async context => {
     text: pipelineExectionMessage,
     thread_ts: slackPostedMessage.message.ts
   });
-  await aws.dynamoDocClient.putAsync({
-    TableName: aws.dynamodbTable,
-    Item: {
-      projectName,
-      executionId,
-      slackThreadTs: slackPostedMessage.message.ts,
-      originalMessage: startAttachments,
-      codepipelineDetails: pipelineDetails,
-      commitDetails,
-      pendingMessages: {},
-      currentActions: [],
-      currentStage: null,
-      lastActionType: null,
-      threadTimeStamp: [slackThreadMessage.message.ts],
-      Lock: false
-    }
-  });
+  await aws.dynamoDocClient
+    .put({
+      TableName: aws.dynamodbTable,
+      Item: {
+        projectName,
+        executionId,
+        slackThreadTs: slackPostedMessage.message.ts,
+        originalMessage: startAttachments,
+        codepipelineDetails: pipelineDetails,
+        commitDetails,
+        pendingMessages: {},
+        currentActions: [],
+        currentStage: null,
+        lastActionType: null,
+        threadTimeStamp: [slackThreadMessage.message.ts],
+        Lock: false
+      }
+    })
+    .promise();
 
   return 'Message Acknowledge';
 };
@@ -690,10 +698,12 @@ exports.handler = async (event, lambdaContext) => {
   );
 
   // Update and Lock Release
-  await aws.dynamoDocClient.putAsync({
-    TableName: aws.dynamodbTable,
-    Item: _.set('Lock', false, context.record)
-  });
+  await aws.dynamoDocClient
+    .put({
+      TableName: aws.dynamodbTable,
+      Item: _.set('Lock', false, context.record)
+    })
+    .promise();
 
   return 'Acknoledge Event';
 };

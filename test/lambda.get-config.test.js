@@ -1,6 +1,6 @@
 const test = require('ava');
-const Promise = require('bluebird');
 const {getContext} = require('../lambda/aws-slack-codepipeline-watch');
+const {awsPromise} = require('./utils');
 
 test('getConfig without expected arguments does throw when no SLACK_TOKEN', async t => {
   await t.throwsAsync(
@@ -31,7 +31,7 @@ const eventStub = {
 };
 const lambdaContextStub = {
   codepipeline: {
-    getPipelineExecutionAsync: () => Promise.resolve('pipeline-data')
+    getPipelineExecution: () => awsPromise('pipeline-data')
   }
 };
 test('getConfig with expected arguments return expected config', async t => {
@@ -60,12 +60,12 @@ test('getConfig with expected arguments return promisified clients (mocked)', as
     eventStub,
     {
       slack: {chat: {someMethod: () => 'slack'}},
-      dynamoDocClient: {putAsync: () => 'dynamo'},
-      codepipeline: {getPipelineExecutionAsync: () => 'codepipeline'}
+      dynamoDocClient: {put: () => awsPromise('dynamo')},
+      codepipeline: {getPipelineExecution: () => awsPromise('codepipeline')}
     }
   );
-  t.is(typeof aws.dynamoDocClient.putAsync, 'function');
-  t.is(typeof aws.codepipeline.getPipelineExecutionAsync, 'function');
+  t.is(typeof aws.dynamoDocClient.put, 'function');
+  t.is(typeof aws.codepipeline.getPipelineExecution, 'function');
   t.is(typeof slack.web.chat.someMethod, 'function');
 });
 
@@ -80,8 +80,10 @@ test('getConfig with expected arguments return expected values from event', asyn
     eventStub,
     {
       slack: {chat: {someMethod: () => 'slack'}},
-      dynamoDocClient: {putAsync: () => 'dynamo'},
-      codepipeline: {getPipelineExecutionAsync: () => 'codepipeline'}
+      dynamoDocClient: {
+        put: awsPromise('dynamo')
+      },
+      codepipeline: {getPipelineExecution: () => awsPromise('codepipeline')}
     }
   );
   t.deepEqual(context.event, {

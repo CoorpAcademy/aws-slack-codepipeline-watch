@@ -1,6 +1,7 @@
 const test = require('ava');
 const Promise = require('bluebird');
 const {handleInitialMessage} = require('../lambda/aws-slack-codepipeline-watch');
+const {awsPromise, failingAwsPromise} = require('./utils');
 
 test('handleInitialMessage create two slack message and a dynamo record', async t => {
   t.plan(11);
@@ -18,18 +19,23 @@ test('handleInitialMessage create two slack message and a dynamo record', async 
     },
     aws: {
       codepipeline: {
-        getPipelineAsync(params) {
-          return Promise.resolve({pipeline: `pipeline ${params.name}`});
+        getPipeline(params) {
+          return awsPromise({pipeline: `pipeline ${params.name}`});
         }
       },
       dynamodbTable: 'CodepipelineWatch',
       dynamoDocClient: {
-        putAsync(params) {
-          t.is(params.TableName, 'CodepipelineWatch');
-          t.is(params.Item.projectName, 'test');
-          t.is(params.Item.slackThreadTs, 'ts');
-          t.deepEqual(params.Item.originalMessage, originalMessage);
-          t.is(params.Item.codepipelineDetails, 'pipeline codepipeline-test');
+        put(params) {
+          try {
+            t.is(params.TableName, 'CodepipelineWatch');
+            t.is(params.Item.projectName, 'test');
+            t.is(params.Item.slackThreadTs, 'ts');
+            t.deepEqual(params.Item.originalMessage, originalMessage);
+            t.is(params.Item.codepipelineDetails, 'pipeline codepipeline-test');
+            return awsPromise();
+          } catch (err) {
+            return failingAwsPromise(err);
+          }
         }
       }
     },

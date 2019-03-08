@@ -3,6 +3,7 @@ const Promise = require('bluebird');
 const {handler} = require('../lambda/aws-slack-codepipeline-watch');
 const codepipelineData = require('./fixtures/codepipeline-data');
 const githubCommitDetails = require('./fixtures/github-commit-details');
+const {awsPromise} = require('./utils');
 
 const codepipelineExecutionWithoutArtefact = {
   pipelineExecution: {
@@ -76,22 +77,22 @@ test('lambda handler process correctly original pipeline message', async t => {
   };
   const falseContext = {
     codepipeline: {
-      getPipelineExecutionAsync: params => {
+      getPipelineExecution: params => {
         t.deepEqual(params, {
           pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
           pipelineName: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineExecutionWithoutArtefact);
+        return awsPromise(codepipelineExecutionWithoutArtefact);
       },
-      getPipelineAsync: params => {
+      getPipeline: params => {
         t.deepEqual(params, {
           name: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineData);
+        return awsPromise(codepipelineData);
       }
     },
     dynamoDocClient: {
-      putAsync(params) {
+      put(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Item: {
@@ -117,6 +118,7 @@ test('lambda handler process correctly original pipeline message', async t => {
             threadTimeStamp: ['timestamp']
           }
         });
+        return awsPromise();
       }
     },
     slack: {
@@ -177,22 +179,22 @@ test('lambda handler process correctly another stage message, the first with com
   };
   const falseContext = {
     codepipeline: {
-      getPipelineExecutionAsync: params => {
+      getPipelineExecution: params => {
         t.deepEqual(params, {
           pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
           pipelineName: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineExecutionWithArtefact);
+        return awsPromise(codepipelineExecutionWithArtefact);
       },
-      getPipelineAsync: params => {
+      getPipeline: params => {
         t.deepEqual(params, {
           name: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineData);
+        return awsPromise(codepipelineData);
       }
     },
     dynamoDocClient: {
-      putAsync(params) {
+      put(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Item: {
@@ -218,8 +220,9 @@ test('lambda handler process correctly another stage message, the first with com
             threadTimeStamp: ['some-ts', 'timestamp']
           }
         });
+        return awsPromise();
       },
-      updateAsync(params) {
+      update(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Key: {projectName: 'test', executionId: '01234567-0123-0123-0123-012345678901'},
@@ -229,7 +232,7 @@ test('lambda handler process correctly another stage message, the first with com
           ExpressionAttributeValues: {':lock': true, ':unlocked': false},
           ReturnValues: 'ALL_NEW'
         });
-        return Promise.resolve({
+        return awsPromise({
           Attributes: {
             Lock: false,
             codepipelineDetails: codepipelineData.pipeline,
@@ -348,22 +351,22 @@ test('lambda handler store a message it cannot process', async t => {
   };
   const falseContext = {
     codepipeline: {
-      getPipelineExecutionAsync: params => {
+      getPipelineExecution: params => {
         t.deepEqual(params, {
           pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
           pipelineName: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineExecutionWithArtefact);
+        return awsPromise(codepipelineExecutionWithArtefact);
       },
-      getPipelineAsync: params => {
+      getPipeline: params => {
         t.deepEqual(params, {
           name: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineData);
+        return awsPromise(codepipelineData);
       }
     },
     dynamoDocClient: {
-      putAsync(params) {
+      put(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Item: {
@@ -388,8 +391,9 @@ test('lambda handler store a message it cannot process', async t => {
             slackThreadTs: 'timestamp'
           }
         });
+        return awsPromise();
       },
-      updateAsync(params) {
+      update(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Key: {projectName: 'test', executionId: '01234567-0123-0123-0123-012345678901'},
@@ -399,7 +403,7 @@ test('lambda handler store a message it cannot process', async t => {
           ExpressionAttributeValues: {':lock': true, ':unlocked': false},
           ReturnValues: 'ALL_NEW'
         });
-        return Promise.resolve({
+        return awsPromise({
           Attributes: {
             Lock: false,
             commitDetails,
@@ -493,22 +497,22 @@ test('lambda handler unpile a message it can now process', async t => {
   };
   const falseContext = {
     codepipeline: {
-      getPipelineExecutionAsync: params => {
+      getPipelineExecution: params => {
         t.deepEqual(params, {
           pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
           pipelineName: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineExecutionWithArtefact);
+        return awsPromise(codepipelineExecutionWithArtefact);
       },
-      getPipelineAsync: params => {
+      getPipeline: params => {
         t.deepEqual(params, {
           name: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineData);
+        return awsPromise(codepipelineData);
       }
     },
     dynamoDocClient: {
-      putAsync(params) {
+      put(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Item: {
@@ -534,8 +538,9 @@ test('lambda handler unpile a message it can now process', async t => {
             threadTimeStamp: ['some-ts', 'yats-1', 'yats-2']
           }
         });
+        return awsPromise();
       },
-      updateAsync(params) {
+      update(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Key: {projectName: 'test', executionId: '01234567-0123-0123-0123-012345678901'},
@@ -545,7 +550,7 @@ test('lambda handler unpile a message it can now process', async t => {
           ExpressionAttributeValues: {':lock': true, ':unlocked': false},
           ReturnValues: 'ALL_NEW'
         });
-        return Promise.resolve({
+        return awsPromise({
           Attributes: {
             Lock: false,
             commitDetails,
@@ -639,23 +644,23 @@ test('lambda handler unpile message even if they are simultaneus', async t => {
   };
   const falseContext = {
     codepipeline: {
-      getPipelineExecutionAsync: params => {
+      getPipelineExecution: params => {
         t.deepEqual(params, {
           pipelineExecutionId: '01234567-0123-0123-0123-012345678901',
           pipelineName: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineExecutionWithArtefact);
+        return awsPromise(codepipelineExecutionWithArtefact);
       },
-      getPipelineAsync: params => {
+      getPipeline: params => {
         t.deepEqual(params, {
           name: 'codepipeline-test'
         });
-        return Promise.resolve(codepipelineData);
+        return awsPromise(codepipelineData);
       }
     },
     github: {token: 'tokenstub'},
     dynamoDocClient: {
-      putAsync(params) {
+      put(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Item: {
@@ -681,8 +686,9 @@ test('lambda handler unpile message even if they are simultaneus', async t => {
             threadTimeStamp: ['some-ts', 'ts-1', 'ts-2', 'ts-3']
           }
         });
+        return awsPromise();
       },
-      updateAsync(params) {
+      update(params) {
         t.deepEqual(params, {
           TableName: 'dynamoTable',
           Key: {projectName: 'test', executionId: '01234567-0123-0123-0123-012345678901'},
@@ -692,7 +698,7 @@ test('lambda handler unpile message even if they are simultaneus', async t => {
           ExpressionAttributeValues: {':lock': true, ':unlocked': false},
           ReturnValues: 'ALL_NEW'
         });
-        return Promise.resolve({
+        return awsPromise({
           Attributes: {
             Lock: false,
             commitDetails,

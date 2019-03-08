@@ -4,7 +4,7 @@
   "description": "AWS Slack Codepipeline Watch",
   "main": "index.js",
   "scripts": {
-    "test": "ava",
+    "test": "ava '**/*.test.js'",
     "lint": "eslint test lambda",
     "cover": "nyc npm test",
     "publish-coverage": "nyc report --reporter=lcov > coverage.lcov && codecov",
