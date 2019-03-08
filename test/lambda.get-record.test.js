@@ -1,6 +1,6 @@
 const test = require('ava');
 const Promise = require('bluebird');
-const {getRecord} = require('../aws-slack-codepipeline-watch');
+const {getRecord} = require('../lambda/aws-slack-codepipeline-watch');
 
 test('getRecord can be resolve from first shot', async t => {
   t.plan(4);

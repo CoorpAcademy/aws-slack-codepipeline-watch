@@ -1,3 +1,7 @@
+# Repo specifics
+archive
+private
+
 # Release zip
 *.zip
 

@@ -1,5 +1,5 @@
 const test = require('ava');
-const {shouldProceed} = require('../aws-slack-codepipeline-watch');
+const {shouldProceed} = require('../lambda/aws-slack-codepipeline-watch');
 
 test('shouldProceed pipeline handling declare guard false when some stage is active', t => {
   const [guard, update] = shouldProceed({type: 'pipeline', state: 'WHATEVER'}, 'someStage');

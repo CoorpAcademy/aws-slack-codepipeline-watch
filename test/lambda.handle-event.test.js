@@ -1,6 +1,6 @@
 const test = require('ava');
 const Promise = require('bluebird');
-const {handleEvent} = require('../aws-slack-codepipeline-watch');
+const {handleEvent} = require('../lambda/aws-slack-codepipeline-watch');
 const codepipelineData = require('./fixtures/codepipeline-data');
 
 test('handleEvent handle pipeline message', async t => {

@@ -1,6 +1,6 @@
 const test = require('ava');
 const Promise = require('bluebird');
-const {handleInitialMessage} = require('../aws-slack-codepipeline-watch');
+const {handleInitialMessage} = require('../lambda/aws-slack-codepipeline-watch');
 
 test('handleInitialMessage create two slack message and a dynamo record', async t => {
   t.plan(11);

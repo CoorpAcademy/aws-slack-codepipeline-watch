@@ -1,5 +1,5 @@
 const test = require('ava');
-const {computeExecutionDetailsProperties} = require('../aws-slack-codepipeline-watch');
+const {computeExecutionDetailsProperties} = require('../lambda/aws-slack-codepipeline-watch');
 
 test('computeExecutionDetailsProperties for pipeline', t => {
   const context = {

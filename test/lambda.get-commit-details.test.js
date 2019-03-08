@@ -1,5 +1,5 @@
 const test = require('ava');
-const {getCommitDetails} = require('../aws-slack-codepipeline-watch');
+const {getCommitDetails} = require('../lambda/aws-slack-codepipeline-watch');
 const codepipelineData = require('./fixtures/codepipeline-data');
 const githubCommitDetails = require('./fixtures/github-commit-details');
 

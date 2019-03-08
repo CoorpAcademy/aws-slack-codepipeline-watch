@@ -1,6 +1,6 @@
 const test = require('ava');
 const Promise = require('bluebird');
-const {getContext} = require('../aws-slack-codepipeline-watch');
+const {getContext} = require('../lambda/aws-slack-codepipeline-watch');
 
 test('getConfig without expected arguments does throw when no SLACK_TOKEN', async t => {
   await t.throws(
