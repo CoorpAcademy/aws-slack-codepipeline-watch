@@ -1,8 +1,8 @@
 const {WebClient} = require('@slack/client');
 const AWS = require('aws-sdk');
-const Promise = require('bluebird');
 const request = require('request');
 const _ = require('lodash/fp');
+const wait = require('delay');
 
 const getContext = async (environ, event, lambdaContext = {}) => {
   const token = environ.SLACK_TOKEN;
@@ -207,7 +207,7 @@ const getRecord = async context => {
       return {};
     });
   if (updateRecord.Attributes) return updateRecord.Attributes;
-  await Promise.delay(500);
+  await wait(500);
   return getRecord(context);
 };
 
@@ -231,7 +231,7 @@ const getCommitDetails = async (context, pipelineDetails) => {
   // not hanlded for now
   const {configuration: {Branch, Owner, Repo}} = githubDetails[0];
 
-  const githubCommitDetails = await Promise.fromCallback(callback => {
+  const githubCommitDetails = await new Promise((resolve, reject) => {
     context.request(
       {
         url: `https://api.github.com/repos/${Owner}/${Repo}/commits/${artifactRevision.revisionId}`,
@@ -242,10 +242,10 @@ const getCommitDetails = async (context, pipelineDetails) => {
         }
       },
       (err, response, body) => {
-        if (err) return callback(err);
+        if (err) return reject(err);
         if (response.statusCode !== 200)
-          return callback(new Error(`Status code was ${response.statusCode}`));
-        return callback(null, JSON.parse(body));
+          return reject(new Error(`Status code was ${response.statusCode}`));
+        return resolve(JSON.parse(body));
       }
     );
   });

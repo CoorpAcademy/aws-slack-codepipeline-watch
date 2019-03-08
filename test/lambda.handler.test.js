@@ -1,5 +1,4 @@
 const test = require('ava');
-const Promise = require('bluebird');
 const {handler} = require('../lambda/aws-slack-codepipeline-watch');
 const codepipelineData = require('./fixtures/codepipeline-data');
 const githubCommitDetails = require('./fixtures/github-commit-details');

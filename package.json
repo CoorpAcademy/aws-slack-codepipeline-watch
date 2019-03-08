@@ -20,7 +20,7 @@
   "license": "ISC",
   "dependencies": {
     "@slack/client": "^4.11.0",
-    "bluebird": "^3.5.3",
+    "delay": "^4.1.0",
     "lodash": "^4.17.11",
     "request": "^2.88.0"
   },

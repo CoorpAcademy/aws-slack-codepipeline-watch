@@ -1,10 +1,8 @@
-const Bromise = require('bluebird');
-
 const awsPromise = res => ({
-  promise: () => Bromise.resolve(res)
+  promise: () => Promise.resolve(res)
 });
 const failingAwsPromise = err => ({
-  promise: () => Bromise.reject(err)
+  promise: () => Promise.reject(err)
 });
 
 module.exports = {awsPromise, failingAwsPromise};

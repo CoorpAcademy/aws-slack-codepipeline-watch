@@ -20,7 +20,8 @@
   ],
   "rules": {
     "strict": "off",
-    "no-shadow":["error", { "hoist": "never" }]
+    "no-shadow":["error", { "hoist": "never" }],
+    "promise/no-native": "off"
   },
   "overrides": [
     {

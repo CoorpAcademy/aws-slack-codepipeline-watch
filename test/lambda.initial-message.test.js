@@ -1,5 +1,4 @@
 const test = require('ava');
-const Promise = require('bluebird');
 const {handleInitialMessage} = require('../lambda/aws-slack-codepipeline-watch');
 const {awsPromise, failingAwsPromise} = require('./utils');
 
