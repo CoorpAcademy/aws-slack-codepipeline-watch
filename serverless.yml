@@ -6,6 +6,14 @@ provider:
   runtime: nodejs8.10
   region: eu-west-1 # §todo: make it configurable
 
+custom:
+  config:
+    slack:
+      channel: ${env:SLACK_CHANNEL}
+      token: ${env:SLACK_TOKEN}
+    github:
+      token: ${env:GITHUB_AUTH_TOKEN}
+
 functions:
 
   codepipeline-watch:
@@ -15,16 +23,16 @@ functions:
     memorySize: 128
     timeout: 60
     environment:
-      SLACK_TOKEN: ${env:SLACK_TOKEN}
-      SLACK_CHANNEL: ${env:SLACK_CHANNEL}
-      GITHUB_AUTH_TOKEN: ${env:GITHUB_AUTH_TOKEN}
+      SLACK_TOKEN: ${self:custom.config.slack.token}
+      SLACK_CHANNEL: ${self:custom.config.slack.channel}
+      GITHUB_AUTH_TOKEN: ${self:custom.config.github.token}
       DYNAMO_TABLE:
         Ref: DynamoTable
     events:
       - cloudwatchEvent:
+          name: CodepipelineWatchCloudwatchEventTrigger
+          description: "Event triggering CodepipelineWatch from codepipeline events"
           event:
-            name: CodepipelineWatchCloudwatchEventTrigger
-            description: "Event triggering CodepipelineWatch from codepipeline events"
             source:
               - "aws.codepipeline"
 
