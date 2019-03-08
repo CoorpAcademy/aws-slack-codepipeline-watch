@@ -17,7 +17,7 @@
     "slack"
   ],
   "author": "Adrien Becchis",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@slack/client": "^4.11.0",
     "delay": "^4.1.0",
