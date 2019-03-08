@@ -21,5 +21,13 @@
   "rules": {
     "strict": "off",
     "no-shadow":["error", { "hoist": "never" }]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["test/**/*.js"],
+      "rules": {
+        "ava/use-t-well": "off"
+      }
+    }
+  ]
 }

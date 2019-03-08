@@ -3,13 +3,13 @@ const Promise = require('bluebird');
 const {getContext} = require('../lambda/aws-slack-codepipeline-watch');
 
 test('getConfig without expected arguments does throw when no SLACK_TOKEN', async t => {
-  await t.throws(
+  await t.throwsAsync(
     () => getContext({DYNAMO_TABLE: 'dbt', SLACK_CHANNEL: 'sc'}),
     'Need a valid token defined in SLACK_TOKEN'
   );
 });
 test('getConfig without expected arguments does throw when no SLACK_CHANNEL', async t => {
-  await t.throws(() =>
+  await t.throwsAsync(() =>
     getContext(
       {DYNAMO_TABLE: 'dbt', SLACK_TOKEN: 'st'},
       'Need a valid chanel defined in SLACK_CHANNEL'
@@ -17,7 +17,7 @@ test('getConfig without expected arguments does throw when no SLACK_CHANNEL', as
   );
 });
 test('getConfig without expected arguments does throw when no DYNAMO_TABLE', async t => {
-  await t.throws(
+  await t.throwsAsync(
     () => getContext({SLACK_TOKEN: 'st', SLACK_CHANNEL: 'sc'}),
     'Need a valid table defined in DYNAMO_TABLE'
   );
