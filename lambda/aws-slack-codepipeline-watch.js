@@ -611,7 +611,7 @@ const handlePendingMessages = async (
   return newPending;
 };
 
-exports.handler = async (event, lambdaContext) => {
+const handler = async (event, lambdaContext) => {
   if (event.source !== 'aws.codepipeline')
     throw new Error(`Called from wrong source ${event.source}`);
   const context = await getContext(process.env, event, lambdaContext);
@@ -719,12 +719,14 @@ exports.handler = async (event, lambdaContext) => {
   return 'Acknoledge Event';
 };
 
-exports.shouldProceed = shouldProceed;
-exports.getContext = getContext;
-exports.shouldProceed = shouldProceed;
-exports.getRecord = getRecord;
-exports.getCommitDetails = getCommitDetails;
-exports.handleInitialMessage = handleInitialMessage;
-exports.computeExecutionDetailsProperties = computeExecutionDetailsProperties;
-exports.attachmentForEvent = attachmentForEvent;
-exports.handleEvent = handleEvent;
+module.exports = {
+  handler,
+  shouldProceed,
+  getContext,
+  getRecord,
+  getCommitDetails,
+  handleInitialMessage,
+  computeExecutionDetailsProperties,
+  attachmentForEvent,
+  handleEvent
+};
