@@ -1,4 +1,5 @@
 # Fallback Config for codepipeline-watch
+stack-name: the-codepipeline-watch
 github:
   token: token-to--be-defined
 slack: 

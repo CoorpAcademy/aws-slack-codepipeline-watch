@@ -1,7 +1,7 @@
 service: codepipeline-watch
 
 provider:
-  stackName: ${opt:stack-name, "codepipeline-watch-${opt:stage, 'production'}"}
+  stackName: ${opt:stack-name, self:custom.config.overrides.stack-name, "codepipeline-watch-${opt:stage, 'production'}"}
   name: aws
   stage: ${opt:stage, 'production'}
   runtime: nodejs8.10
@@ -11,10 +11,10 @@ custom:
   config:
     overrides: ${file(${opt:config-file, './serverless-default-config.yml'})}
     slack:
-      channel: ${self:custom.config.overrides.slack.channel, ${env:SLACK_CHANNEL, 'slack-channel-to-be-defined'}}
-      token: ${self:custom.config.overrides.slack.token, ${env:SLACK_TOKEN, 'slack-token-to-be-defined'}}
+      channel: ${self:custom.config.overrides.slack.channel, env:SLACK_CHANNEL, 'slack-channel-to-be-defined'}
+      token: ${self:custom.config.overrides.slack.token, env:SLACK_TOKEN, 'slack-token-to-be-defined'}
     github:
-      token: ${self:custom.config.overrides.github.token, ${env:GITHUB_AUTH_TOKEN, 'github-token-to-be-defined'}}
+      token: ${self:custom.config.overrides.github.token, env:GITHUB_AUTH_TOKEN, 'github-token-to-be-defined'}
     dynamodb:
       table: ${env:DYNAMODB_TABLE, 'codepipeline-watch-events'}
       # §todo: more config to be added
