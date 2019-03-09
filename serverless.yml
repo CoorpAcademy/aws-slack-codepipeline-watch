@@ -7,6 +7,12 @@ provider:
   runtime: nodejs8.10
   region: ${opt:region, 'eu-west-1'}
 
+plugins:
+  - serverless-webpack
+
+package:
+  individually: true
+
 custom:
   config:
     raw: ${file(${opt:config-file, './serverless-default-config.yml'})}
