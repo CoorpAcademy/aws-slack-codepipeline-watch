@@ -1,0 +1,6 @@
+# Fallback Config for codepipeline-watch
+github:
+  token: token-to--be-defined
+slack: 
+  token: token-to-be-defined
+  channel: chanel-to-be-defined
