@@ -9,11 +9,13 @@ provider:
 
 custom:
   config:
+    overrides: ${file(${opt:config-file})}
+    #overrides: ${file:(${opt:config-file, './private/sample-config.yaml})'}
     slack:
-      channel: ${env:SLACK_CHANNEL}
-      token: ${env:SLACK_TOKEN}
+      channel: ${self:custom.config.overrides.slack.channel, ${env:SLACK_CHANNEL, 'slack-channel-to-be-defined'}}
+      token: ${self:custom.config.overrides.slack.token, ${env:SLACK_TOKEN, 'slack-token-to-be-defined'}}
     github:
-      token: ${env:GITHUB_AUTH_TOKEN}
+      token: ${self:custom.config.overrides.github.token, ${env:GITHUB_AUTH_TOKEN, 'github-token-to-be-defined'}}
     dynamodb:
       table: ${env:DYNAMODB_TABLE, 'codepipeline-watch-events'}
       # §todo: more config to be added
