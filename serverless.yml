@@ -16,7 +16,7 @@ package:
 custom:
   config:
     default: ${file(./serverless-default-config.yml)}
-    overrides: ${file(${opt:config-file})}
+    overrides: ${file(${opt:config-file, './serverless-empty-config.yml'})}
     slack:
       channel: ${self:custom.config.overrides.slack.channel, env:SLACK_CHANNEL, self:custom.config.default.slack.channel}
       token: ${self:custom.config.overrides.slack.token, env:SLACK_TOKEN, self:custom.config.default.slack.token}

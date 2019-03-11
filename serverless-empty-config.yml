@@ -1,0 +1,9 @@
+# Fallback Empty file for when no config-file is provided
+stack-name:
+github:
+  token:
+slack:
+  token:
+  channel:
+dynamodb:
+  table:
