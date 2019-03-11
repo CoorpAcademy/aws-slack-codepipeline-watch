@@ -1,5 +1,5 @@
 # Fallback Empty file for when no config-file is provided
-stack-name:
+aws:
 github:
 slack:
 dynamodb:

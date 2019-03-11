@@ -1,7 +1,7 @@
 service: codepipeline-watch
 
 provider:
-  stackName: ${opt:stack-name, self:custom.config.overrides.stack-name, "codepipeline-watch-${opt:stage, 'production'}"}
+  stackName: ${self:custom.config.aws.stackName}
   name: aws
   stage: ${opt:stage, 'production'}
   runtime: nodejs8.10
@@ -15,6 +15,12 @@ package:
 
 custom:
   config:
+    aws:
+      stackName: ${opt:stack-name, self:custom.config.overrides.aws.stackName, self:custom.config.default.aws.stackName}
+      lambdaName: ${self:custom.config.overrides.aws.lambdaName, self:custom.config.default.aws.lambdaName}
+      eventName: ${self:custom.config.overrides.aws.eventName, self:custom.config.default.aws.eventName}
+      scalingRoleName: ${self:custom.config.overrides.aws.scalingRoleName, self:custom.config.default.aws.scalingRoleName}
+      lambdaRoleName: ${self:custom.config.overrides.aws.lambdaRoleName, self:custom.config.default.aws.lambdaRoleName}
     default: ${file(./serverless-default-config.yml)}
     overrides: ${file(${opt:config-file, './serverless-empty-config.yml'})}
     slack:
@@ -24,7 +30,6 @@ custom:
       token: ${self:custom.config.overrides.github.token, env:GITHUB_AUTH_TOKEN, self:custom.config.default.github.token}
     dynamodb:
       table: ${self:custom.config.overrides.dynamodb.table, env:DYNAMODB_TABLE, self:custom.config.default.dynamodb.table}
-      # §todo: more config to be added
       capacity:
           read: ${self:custom.config.overrides.dynamodb.capacity.read, self:custom.config.default.dynamodb.capacity.read}
           write: ${self:custom.config.overrides.dynamodb.capacity.write, self:custom.config.default.dynamodb.capacity.write}
@@ -45,7 +50,7 @@ functions:
 
   codepipeline-watch:
     handler: lambda/aws-slack-codepipeline-watch.handler
-    name: codepipeline-watch
+    name: ${self:custom.config.aws.lambdaName}
     role: CodepipelineWatchLambdaRole
     memorySize: 128
     timeout: 60
@@ -57,7 +62,7 @@ functions:
         Ref: DynamoTable
     events:
       - cloudwatchEvent:
-          name: CodepipelineWatchCloudwatchEventTrigger
+          name: ${self:custom.config.aws.eventName}
           description: "Event triggering CodepipelineWatch from codepipeline events"
           event:
             source:
@@ -112,7 +117,7 @@ resources:
     ScalingRole:
       Type: AWS::IAM::Role
       Properties:
-        RoleName: CodepipelineWatchDynamodbScalingRoleFor${self:provider.region}
+        RoleName: ${self:custom.config.aws.scalingRoleName}
         AssumeRolePolicyDocument:
           Version: "2012-10-17"
           Statement:
@@ -168,7 +173,7 @@ resources:
     CodepipelineWatchLambdaRole:
       Type: AWS::IAM::Role
       Properties:
-        RoleName: CodepipelineWatchAccessRoleFor${self:provider.region}
+        RoleName: ${self:custom.config.aws.lambdaRoleName}
         AssumeRolePolicyDocument:
           Version: "2012-10-17"
           Statement:

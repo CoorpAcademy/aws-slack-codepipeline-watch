@@ -1,5 +1,10 @@
 # Fallback Config for codepipeline-watch
-stack-name: the-codepipeline-watch
+aws:
+  stackName: codepipeline-watch-${opt:stage, 'production'}
+  lambdaName: codepipeline-watch
+  eventName: CodepipelineWatchCloudwatchEventTrigger
+  scalingRoleName: CodepipelineWatchDynamodbScalingRoleFor${self:provider.region}
+  lambdaRoleName: CodepipelineWatchAccessRoleFor${self:provider.region}
 github:
   token: token-to--be-defined
 slack: 
