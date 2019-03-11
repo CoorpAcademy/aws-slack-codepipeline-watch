@@ -18,7 +18,7 @@ custom:
     default: ${file(./serverless-default-config.yml)}
     overrides: ${file(${opt:config-file})}
     slack:
-      channel: ${self:custom.config.overrides.slack.channel, env:SLACK_CHANNEL, self:custom.config.default.slack.channel
+      channel: ${self:custom.config.overrides.slack.channel, env:SLACK_CHANNEL, self:custom.config.default.slack.channel}
       token: ${self:custom.config.overrides.slack.token, env:SLACK_TOKEN, self:custom.config.default.slack.token}
     github:
       token: ${self:custom.config.overrides.github.token, env:GITHUB_AUTH_TOKEN, self:custom.config.default.github.token}
