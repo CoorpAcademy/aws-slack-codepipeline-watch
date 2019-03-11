@@ -7,3 +7,11 @@ slack:
   channel: chanel-to-be-defined
 dynamodb:
   table: codepipeline-watch-events
+  capacity:
+    read: 5
+    write: 5
+  autoscaling:
+    target: 80
+    scale-cooldown: 60
+    min: 5
+    max: 25

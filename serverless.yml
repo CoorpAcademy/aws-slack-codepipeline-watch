@@ -25,7 +25,22 @@ custom:
     dynamodb:
       table: ${self:custom.config.overrides.dynamodb.table, env:DYNAMODB_TABLE, self:custom.config.default.dynamodb.table}
       # §todo: more config to be added
-
+      capacity:
+          read: ${self:custom.config.overrides.dynamodb.capacity.read, self:custom.config.default.dynamodb.capacity.read}
+          write: ${self:custom.config.overrides.dynamodb.capacity.write, self:custom.config.default.dynamodb.capacity.write}
+      autoscaling:
+        read:
+          min: ${self:custom.config.overrides.dynamodb.autoscaling.read.min, self:custom.config.overrides.dynamodb.autoscaling.min, self:custom.config.default.dynamodb.autoscaling.min}
+          max: ${self:custom.config.overrides.dynamodb.autoscaling.read.max, self:custom.config.overrides.dynamodb.autoscaling.max, self:custom.config.default.dynamodb.autoscaling.max}
+          target: ${self:custom.config.overrides.dynamodb.autoscaling.read.target, self:custom.config.overrides.dynamodb.autoscaling.target, self:custom.config.default.dynamodb.autoscaling.target}
+          scale-in-cooldown: ${self:custom.config.overrides.dynamodb.autoscaling.read.scale-in-cooldown,  self:custom.config.overrides.dynamodb.autoscaling.read.scale-cooldown, self:custom.config.overrides.dynamodb.autoscaling.scale-in-cooldown, self:custom.config.overrides.dynamodb.autoscaling.scale-cooldown, self:custom.config.default.dynamodb.autoscaling.scale-cooldown}
+          scale-out-cooldown: ${self:custom.config.overrides.dynamodb.autoscaling.read.scale-out-cooldown,  self:custom.config.overrides.dynamodb.autoscaling.read.scale-cooldown, self:custom.config.overrides.dynamodb.autoscaling.scale-out-cooldown, self:custom.config.overrides.dynamodb.autoscaling.scale-cooldown, self:custom.config.default.dynamodb.autoscaling.scale-cooldown}
+        write:
+          min: ${self:custom.config.overrides.dynamodb.autoscaling.write.min, self:custom.config.overrides.dynamodb.autoscaling.min, self:custom.config.default.dynamodb.autoscaling.min}
+          max: ${self:custom.config.overrides.dynamodb.autoscaling.write.max, self:custom.config.overrides.dynamodb.autoscaling.max, self:custom.config.default.dynamodb.autoscaling.max}
+          target: ${self:custom.config.overrides.dynamodb.autoscaling.write.target, self:custom.config.overrides.dynamodb.autoscaling.target, self:custom.config.default.dynamodb.autoscaling.target}
+          scale-in-cooldown: ${self:custom.config.overrides.dynamodb.autoscaling.write.scale-in-cooldown,  self:custom.config.overrides.dynamodb.autoscaling.write.scale-cooldown, self:custom.config.overrides.dynamodb.autoscaling.scale-in-cooldown, self:custom.config.overrides.dynamodb.autoscaling.scale-cooldown, self:custom.config.default.dynamodb.autoscaling.scale-cooldown}
+          scale-out-cooldown: ${self:custom.config.overrides.dynamodb.autoscaling.write.scale-out-cooldown,  self:custom.config.overrides.dynamodb.autoscaling.write.scale-cooldown, self:custom.config.overrides.dynamodb.autoscaling.scale-out-cooldown, self:custom.config.overrides.dynamodb.autoscaling.scale-cooldown, self:custom.config.default.dynamodb.autoscaling.scale-cooldown}
 functions:
 
   codepipeline-watch:
@@ -75,8 +90,8 @@ resources:
     WriteCapacityScalableTarget:
       Type: AWS::ApplicationAutoScaling::ScalableTarget
       Properties:
-        MaxCapacity: 25
-        MinCapacity: 5
+        MaxCapacity: ${self:custom.config.dynamodb.autoscaling.write.max}
+        MinCapacity: ${self:custom.config.dynamodb.autoscaling.write.min}
         ResourceId:
           Fn::Join: ["/", [table, {Ref: DynamoTable}]]
         RoleARN:
@@ -86,8 +101,8 @@ resources:
     ReadCapacityScalableTarget:
       Type: AWS::ApplicationAutoScaling::ScalableTarget
       Properties:
-        MaxCapacity: 25
-        MinCapacity: 5
+        MaxCapacity: ${self:custom.config.dynamodb.autoscaling.read.max}
+        MinCapacity: ${self:custom.config.dynamodb.autoscaling.read.min}
         ResourceId:
           Fn::Join: ["/", [table, {Ref: DynamoTable}]]
         RoleARN:
@@ -131,9 +146,9 @@ resources:
         ScalingTargetId:
           Ref: WriteCapacityScalableTarget
         TargetTrackingScalingPolicyConfiguration:
-          TargetValue: 80
-          ScaleInCooldown: 60
-          ScaleOutCooldown: 60
+          TargetValue: ${self:custom.config.dynamodb.autoscaling.write.target}
+          ScaleInCooldown: ${self:custom.config.dynamodb.autoscaling.write.scale-in-cooldown}
+          ScaleOutCooldown: ${self:custom.config.dynamodb.autoscaling.write.scale-out-cooldown}
           PredefinedMetricSpecification:
             PredefinedMetricType: DynamoDBWriteCapacityUtilization
     ReadScalingPolicy:
@@ -144,9 +159,9 @@ resources:
         ScalingTargetId:
           Ref: ReadCapacityScalableTarget
         TargetTrackingScalingPolicyConfiguration:
-          TargetValue: 80
-          ScaleInCooldown: 60
-          ScaleOutCooldown: 60
+          TargetValue: ${self:custom.config.dynamodb.autoscaling.read.target}
+          ScaleInCooldown: ${self:custom.config.dynamodb.autoscaling.read.scale-in-cooldown}
+          ScaleOutCooldown: ${self:custom.config.dynamodb.autoscaling.read.scale-out-cooldown}
           PredefinedMetricSpecification:
             PredefinedMetricType: DynamoDBReadCapacityUtilization
 
