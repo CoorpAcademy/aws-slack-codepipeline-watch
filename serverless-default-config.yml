@@ -5,3 +5,5 @@ github:
 slack: 
   token: token-to-be-defined
   channel: chanel-to-be-defined
+dynamodb:
+  table: codepipeline-watch-events
