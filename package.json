@@ -21,6 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "@slack/client": "^4.11.0",
+    "chalk": "^2.4.2",
     "delay": "^4.1.0",
     "lodash": "^4.17.11",
     "p-retry": "^3.0.1",
