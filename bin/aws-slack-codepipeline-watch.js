@@ -2,4 +2,4 @@
 
 const main = require('../cli');
 
-main();
+main(process.argv.slice(2));

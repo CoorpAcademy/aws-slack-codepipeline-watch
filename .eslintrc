@@ -29,6 +29,13 @@
       "rules": {
         "ava/use-t-well": "off"
       }
+    },
+    {
+      "files": ["cli/index.js", "main"],
+      "rules": {
+        "no-console": "off",
+        "unicorn/no-process-exit": "off"
+      }
     }
   ]
 }
