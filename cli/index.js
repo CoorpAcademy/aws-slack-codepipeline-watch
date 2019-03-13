@@ -13,6 +13,7 @@ const main = async () => {
   process.stdout.write(`\n⚡️ ${c.bold.blue('Stack sucessfully deployed')} 🙌\n`);
 };
 
+module.exports = main;
 if (!module.parent) {
   main();
 }

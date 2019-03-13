@@ -11,6 +11,7 @@
     "make-release": "./scripts/make-release-zip.sh",
     "serverless": "serverless"
   },
+  "bin": "./bin/aws-slack-codepipeline-watch.js",
   "keywords": [
     "aws",
     "codepipeline",
