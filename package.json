@@ -4,9 +4,9 @@
   "description": "AWS Slack Codepipeline Watch",
   "main": "index.js",
   "scripts": {
-    "test": "ava",
+    "test": "npm run lint && nyc npm run test:unit",
+    "test:unit": "ava",
     "lint": "eslint test lambda",
-    "cover": "nyc npm test",
     "publish-coverage": "nyc report --reporter=lcov > coverage.lcov && codecov",
     "make-release": "./scripts/make-release-zip.sh",
     "serverless": "serverless"
