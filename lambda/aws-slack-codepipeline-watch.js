@@ -131,16 +131,17 @@ const getActionType = (pipelineDetails, stage, action) => {
   return actionDetails && _.get('actionTypeId.category', actionDetails);
 };
 
+const NO_ACTIONS = (nsa, _runOrder = 1) => ({
+  runOrder: _runOrder,
+  actions: [],
+  noStartedAction: nsa
+});
+
 const shouldProceed = (
   {type, stage, action, state, runOrder},
   currentStage,
   currentActions = {}
 ) => {
-  const NO_ACTIONS = (nsa, _runOrder = 1) => ({
-    runOrder: _runOrder,
-    actions: [],
-    noStartedAction: nsa
-  });
   // NO started to prevent stage to be taken without actions being processed
   if (type === 'stage') {
     if (state === 'STARTED' || state === 'RESUMED')
@@ -192,7 +193,10 @@ const shouldProceed = (
 };
 
 const getRecord = async context => {
-  const {aws, event: {projectName, executionId}} = context;
+  const {
+    aws,
+    event: {projectName, executionId}
+  } = context;
   const params = {
     TableName: aws.dynamodbTable,
     Key: {projectName, executionId},
@@ -232,7 +236,9 @@ const getCommitDetails = async (context, pipelineDetails) => {
   if (_.size(githubDetails) !== 1 || !artifactRevision || _.isEmpty(_.get('github.token', context)))
     return null;
   // not hanlded for now
-  const {configuration: {Branch, Owner, Repo}} = githubDetails[0];
+  const {
+    configuration: {Branch, Owner, Repo}
+  } = githubDetails[0];
 
   const githubCommitDetails = await new Promise((resolve, reject) => {
     context.request(
@@ -367,7 +373,10 @@ const attachmentForEvent = (
   context,
   {type, stage, stageActionTypes, action, actionType, state, runOrder}
 ) => {
-  const {event: {projectName, env, link}, executionDetails: {nbActionsOfStage}} = context;
+  const {
+    event: {projectName, env, link},
+    executionDetails: {nbActionsOfStage}
+  } = context;
   const fstage = stage && stage.replace(/_/g, ' ');
   let title, text, color;
   if (type === 'pipeline') {
