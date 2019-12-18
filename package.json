@@ -20,10 +20,10 @@
   "author": "Adrien Becchis",
   "license": "MIT",
   "dependencies": {
-    "@slack/client": "^4.11.0",
-    "delay": "^4.1.0",
-    "lodash": "^4.17.11",
-    "p-retry": "^3.0.1",
+    "@slack/client": "^5.0.2",
+    "delay": "^4.3.0",
+    "lodash": "^4.17.15",
+    "p-retry": "^4.2.0",
     "request": "^2.88.0"
   },
   "devDependencies": {
