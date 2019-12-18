@@ -1,4 +1,4 @@
-const {WebClient} = require('@slack/client');
+const {WebClient} = require('@slack/web-api');
 const AWS = require('aws-sdk');
 const request = require('request');
 const _ = require('lodash/fp');
