@@ -7,7 +7,7 @@ aws:
   lambdaRoleName: CodepipelineWatchAccessRoleFor${self:provider.region}
 github:
   token: token-to--be-defined
-slack: 
+slack:
   token: token-to-be-defined
   channel: chanel-to-be-defined
 dynamodb:
