@@ -4,7 +4,7 @@ provider:
   stackName: ${self:custom.config.aws.stackName}
   name: aws
   stage: ${opt:stage, 'production'}
-  runtime: nodejs8.10
+  runtime: nodejs12.x
   region: ${opt:region, 'eu-west-1'}
 
 plugins:
