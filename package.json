@@ -20,24 +20,24 @@
   "author": "Adrien Becchis",
   "license": "MIT",
   "dependencies": {
-    "@slack/web-api": "^5.6.0",
+    "@slack/web-api": "^5.7.0",
     "delay": "^4.3.0",
     "lodash": "^4.17.15",
     "p-retry": "^4.2.0",
-    "request": "^2.88.0"
+    "request": "^2.88.2"
   },
   "devDependencies": {
-    "@babel/preset-env": "^7.7.6",
-    "@coorpacademy/eslint-plugin-coorpacademy": "^9.1.0",
-    "ava": "^2.4.0",
-    "aws-sdk": "^2.592.0",
+    "@babel/preset-env": "^7.8.4",
+    "@coorpacademy/eslint-plugin-coorpacademy": "^9.2.1",
+    "ava": "^3.3.0",
+    "aws-sdk": "^2.622.0",
     "babel-loader": "^8.0.6",
-    "codecov": "^3.6.1",
-    "eslint": "^6.7.2",
-    "nyc": "^14.1.1",
-    "serverless": "^1.60.0",
+    "codecov": "^3.6.5",
+    "eslint": "^6.8.0",
+    "nyc": "^15.0.0",
+    "serverless": "^1.64.0",
     "serverless-webpack": "^5.3.1",
-    "webpack": "^4.41.3"
+    "webpack": "^4.41.6"
   },
   "ava": {
     "files": [
