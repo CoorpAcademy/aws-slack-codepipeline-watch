@@ -3,6 +3,10 @@
   "version": "0.11.0",
   "description": "AWS Slack Codepipeline Watch",
   "main": "index.js",
+  "engines": {
+    "node": "^12.14.1",
+    "npm": "^6.13.4"
+  },
   "scripts": {
     "test": "npm run lint && nyc npm run test:unit",
     "test:unit": "ava",
