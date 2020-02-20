@@ -3,24 +3,24 @@ const {getContext} = require('../lambda/aws-slack-codepipeline-watch');
 const {awsPromise} = require('./utils');
 
 test('getConfig without expected arguments does throw when no SLACK_TOKEN', async t => {
-  await t.throwsAsync(
-    () => getContext({DYNAMO_TABLE: 'dbt', SLACK_CHANNEL: 'sc'}),
-    'Need a valid token defined in SLACK_TOKEN'
-  );
+  await t.throwsAsync(() => getContext({DYNAMO_TABLE: 'dbt', SLACK_CHANNEL: 'sc'}), {
+    message: 'Need a valid token defined in SLACK_TOKEN'
+  });
 });
+
 test('getConfig without expected arguments does throw when no SLACK_CHANNEL', async t => {
   await t.throwsAsync(() =>
     getContext(
       {DYNAMO_TABLE: 'dbt', SLACK_TOKEN: 'st'},
-      'Need a valid chanel defined in SLACK_CHANNEL'
+      {message: 'Need a valid chanel defined in SLACK_CHANNEL'}
     )
   );
 });
+
 test('getConfig without expected arguments does throw when no DYNAMO_TABLE', async t => {
-  await t.throwsAsync(
-    () => getContext({SLACK_TOKEN: 'st', SLACK_CHANNEL: 'sc'}),
-    'Need a valid table defined in DYNAMO_TABLE'
-  );
+  await t.throwsAsync(() => getContext({SLACK_TOKEN: 'st', SLACK_CHANNEL: 'sc'}), {
+    message: 'Need a valid table defined in DYNAMO_TABLE'
+  });
 });
 
 const eventStub = {
@@ -49,6 +49,7 @@ test('getConfig with expected arguments return expected config', async t => {
   t.is(slack.channel, 'sc');
   t.is(slack.token, 'st');
 });
+
 test('getConfig with expected arguments return promisified clients (mocked)', async t => {
   const {aws, slack} = await getContext(
     {
