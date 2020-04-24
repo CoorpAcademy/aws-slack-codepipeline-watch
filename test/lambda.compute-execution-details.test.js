@@ -73,7 +73,10 @@ test('computeExecutionDetailsProperties for actions', t => {
         stages: [
           {
             name: 'mystage',
-            actions: [{name: 'myaction', runOrder: 1}, {name: 'myaction2', runOrder: 2}]
+            actions: [
+              {name: 'myaction', runOrder: 1},
+              {name: 'myaction2', runOrder: 2}
+            ]
           }
         ]
       },
@@ -95,7 +98,10 @@ test('computeExecutionDetailsProperties for actions', t => {
     commitDetailsMessage: 'commit `<gitehube|42424242>`\n> Solution to all problems',
     eventCurrentStage: {
       name: 'mystage',
-      actions: [{name: 'myaction', runOrder: 1}, {name: 'myaction2', runOrder: 2}]
+      actions: [
+        {name: 'myaction', runOrder: 1},
+        {name: 'myaction2', runOrder: 2}
+      ]
     },
     nbActionsOfStage: 2,
     eventCurrentOrder: 1,
@@ -103,7 +109,10 @@ test('computeExecutionDetailsProperties for actions', t => {
       stages: [
         {
           name: 'mystage',
-          actions: [{name: 'myaction', runOrder: 1}, {name: 'myaction2', runOrder: 2}]
+          actions: [
+            {name: 'myaction', runOrder: 1},
+            {name: 'myaction2', runOrder: 2}
+          ]
         }
       ]
     },

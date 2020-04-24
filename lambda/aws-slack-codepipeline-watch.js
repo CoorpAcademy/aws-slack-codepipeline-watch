@@ -411,9 +411,7 @@ const getCommitMessage = context => {
     fields: [
       {
         title: 'Commit',
-        value: `\`<${context.executionDetails.commitUrl}|${
-          context.executionDetails.shortCommitId
-        }>\``,
+        value: `\`<${context.executionDetails.commitUrl}|${context.executionDetails.shortCommitId}>\``,
         short: true
       },
       {
@@ -536,7 +534,10 @@ const handlePendingMessages = async (
     };
   }
   // Handling pending messages, Iterate and treat them as going
-  const orderedEvents = _.map(([k, v]) => k, _.sortBy(([k, v]) => v, _.toPairs(pendingMessages)));
+  const orderedEvents = _.map(
+    ([k, v]) => k,
+    _.sortBy(([k, v]) => v, _.toPairs(pendingMessages))
+  );
 
   const extractEventSummary = ev => {
     // §todo extract
